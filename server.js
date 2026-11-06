@@ -4,12 +4,112 @@ const G = (function () {
 const module = { exports: {} };
 // 大富豪ゲームエンジン（サーバー側で権威的に判定）
 // カード: {id, s:'S'|'H'|'D'|'C'|'X', r:3..15(14=A,15=2), 16=Joker}
+// ローカルルールの一覧は https://boardgamegarden.blogspot.com/2012/08/blog-post_4312.html を元にしています。
+// ★はページ上の「出現頻度」(★5=定番, ★1=珍しい)
 
 const SUITS = ['S', 'H', 'D', 'C'];
 const SYM = { S: '♠', H: '♥', D: '♦', C: '♣' };
 const LABEL = { 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10', 11: 'J', 12: 'Q', 13: 'K', 14: 'A', 15: '2', 16: 'JK' };
 const isJ = (c) => c.r === 16;
+const isRed = (c) => c.s === 'H' || c.s === 'D';
+const isD3 = (c) => c.s === 'D' && c.r === 3;
+const GUILLOTINE_N = 20;
 
+// ---- ルール一覧 ----------------------------------------------------------
+const G_CARD = 'カードの効果', G_REV = '革命', G_LOCK = '縛り', G_PLAY = '出し方', G_OTHER = '順位・交換・その他';
+const RULE_LIST = [
+  { id: 'eight', name: '8切り', stars: 5, group: G_CARD, def: true, desc: '8を出すと場が流れ、同じ人がもう一度出す。' },
+  { id: 'spade3', name: 'スペ3返し', stars: 5, group: G_CARD, def: true, desc: 'ジョーカー単体には♠3単体で勝てる。' },
+  { id: 'jBack', name: 'Jバック（11バック）', stars: 5, group: G_CARD, desc: 'Jを出すと、その場が流れるまで強さが逆転する。' },
+  { id: 'jBack3', name: '強化Jバック', stars: 5, group: G_CARD, desc: 'Jを3枚出すと、この場に加えて次の場も強さが逆転する。（Jバックと併用）' },
+  { id: 'revolution', name: '革命', stars: 5, group: G_REV, def: true, desc: '同じ数字を4枚以上出すと、強さが逆転する。' },
+  { id: 'revBack', name: '革命返し', stars: 5, group: G_REV, def: true, desc: '革命中にもう一度革命を起こすと、強さが元に戻る。' },
+  { id: 'stairRev', name: '階段革命（5枚以上）', stars: 5, group: G_REV, def: true, desc: '階段を5枚以上で出すと革命になる。' },
+  { id: 'stairRev3', name: '階段革命（3枚以上）', stars: 5, group: G_REV, desc: '階段を3枚以上で出すと革命になる。' },
+  { id: 'lock', name: '縛り（両シバ含む）', stars: 5, group: G_LOCK, def: true, desc: '場と同じマークを連続して出すと、以降そのマークしか出せない。2枚以上なら同じマークの組（両シバ）。' },
+  { id: 'gekishiba', name: '激シバ（連シバ）', stars: 5, group: G_LOCK, desc: '縛りに加えて、続きの数字（+1）で同じマークを出すと、以降も続きの数字でしか出せない（1枚出し）。' },
+  { id: 'ryogeki', name: '両激シ', stars: 4, group: G_LOCK, desc: '2枚以上の両シバが続きの数字で成立すると、以降も続きの数字でしか出せない。' },
+  { id: 'katashiba', name: '片シバ', stars: 4, group: G_LOCK, desc: '場が2枚以上のとき、場と一部のマークだけが重なっても縛りになる。以降は共通マークを1枚含めば出せる。' },
+  { id: 'tobiShiba', name: '飛び縛り', stars: 3, group: G_LOCK, desc: '飛び連番でも縛りが発生する。' },
+  { id: 'stairs', name: '階段', stars: 4, group: G_PLAY, def: true, desc: '同じマークの連続する数字を3枚以上で出せる。' },
+  { id: 'tobi', name: '飛び連番', stars: 3, group: G_PLAY, desc: '3・5・7や4・7・10のように一定間隔の同マーク3枚以上を出せる。' },
+  { id: 'emperor', name: 'エンペラー', stars: 3, group: G_PLAY, desc: '4枚すべて違うマークの連続する数字も階段として出せる。' },
+  { id: 'dignity', name: '威厳', stars: 0, group: G_PLAY, desc: 'J・Q・Kを含む階段が8切りと同じ効果になる。' },
+  { id: 'guerrilla', name: 'ゲリラ兵', stars: 2, group: G_PLAY, desc: '場と同じ数字を、場より多い枚数で出せる。' },
+  { id: 'd3start', name: 'ダイヤの3スタート', stars: 4, group: G_CARD, desc: '最初のラウンドはダイヤの3を持つ人から始め、その最初の手にダイヤの3を含める。' },
+  { id: 'yamiichi', name: '闇市', stars: 1, group: G_CARD, desc: 'Aを3枚出すと、手札の弱い2枚を渡して相手の最強2枚をもらう。（相手は自動で選ばれます）' },
+  { id: 'nextAce', name: '次期エース', stars: 2, group: G_CARD, desc: '場が流れたとき、その場で最後にAを出した人から次を始める。' },
+  { id: 'back2', name: '2バック', stars: 1, group: G_CARD, desc: '2を出すと、その場が流れるまで強さが逆転する。' },
+  { id: 'daikaku', name: '大革命（2を4枚で勝利）', stars: 3, group: G_CARD, desc: '2を4枚出した時点でその人が大富豪になり、ラウンド終了。' },
+  { id: 'sanSan', name: '3三返し', stars: 3, group: G_CARD, desc: 'ジョーカー単体に、3を3枚で勝てる。' },
+  { id: 'sunaarashi', name: '砂嵐', stars: 3, group: G_CARD, desc: '3を3枚出すと、どんな場にも出せる。' },
+  { id: 'zombie', name: 'ゾンビ', stars: 1, group: G_CARD, desc: '3を3枚出すと、捨て札の弱い1枚を次の人に押し付ける。' },
+  { id: 'stop4', name: '4止め', stars: 1, group: G_CARD, desc: '8切り（1枚）に対して、4の2枚出しで切りを止められる。' },
+  { id: 'cut4', name: '4切り', stars: 1, group: G_CARD, desc: '4を出すと場が流れ、同じ人がもう一度出す。' },
+  { id: 'death', name: 'DEATH', stars: 1, group: G_CARD, desc: '4を3枚出すと、自分以外の全員が最強の1枚を捨てる。' },
+  { id: 'skip5', name: '5スキップ', stars: 2, group: G_CARD, desc: '5を出した枚数だけ次の人を飛ばす。' },
+  { id: 'color5', name: '5番目の色', stars: 2, group: G_CARD, desc: '5を出すと、そのマークしか出せなくなる。' },
+  { id: 'red5', name: '赤い5', stars: 1, group: G_CARD, desc: '赤の5を出すと、ランダムな1人と手札を混ぜて均等に分け直す。' },
+  { id: 'back6', name: '6戻し', stars: 2, group: G_CARD, desc: 'Jバック・2バック中に6を出すと、強さが元に戻る。' },
+  { id: 'satan', name: 'サタン', stars: 1, group: G_CARD, desc: '6を3枚出すと、捨て札から最強の1枚をもらう。' },
+  { id: 'cutRev6', name: '6切り', stars: 3, group: G_CARD, desc: '革命中は8の代わりに6で場を切る。' },
+  { id: 'cutRev7', name: '7切り', stars: 1, group: G_CARD, desc: '革命中は8の代わりに7で場を切る。' },
+  { id: 'pass7', name: '7渡し', stars: 3, group: G_CARD, desc: '7を出した枚数だけ、手札の弱い札を次の人に渡す。' },
+  { id: 'lucky7', name: 'ラッキーセブン', stars: 1, group: G_CARD, desc: '7を3枚出し、誰も出せなければその人が大富豪になる。' },
+  { id: 'd7', name: 'ダイヤ7カウンター', stars: 1, group: G_CARD, desc: '8切り（1枚）に対して、♦7単体で切りを止められる。' },
+  { id: 'black7draw', name: '黒い7', stars: 1, group: G_CARD, desc: '♣/♠の7を出すと、捨て札からランダムに出した枚数だけ引く。' },
+  { id: 'red7', name: 'レッドセブン', stars: 1, group: G_CARD, desc: '♥/♦の7が、2より強くジョーカーより弱い札になる。' },
+  { id: 'black7', name: 'ブラックセブン', stars: 1, group: G_CARD, desc: '革命中、♣/♠の7が3より強くジョーカーより弱い札になる。' },
+  { id: 'eight3', name: '強化8切り', stars: 1, group: G_CARD, desc: '8を3枚で切ると、その場のカードはゲームから消える。' },
+  { id: 'reverse9', name: '9リバース', stars: 3, group: G_CARD, desc: '9を出すと順番が逆回りになる。' },
+  { id: 'shuffle9', name: '9シャッフル', stars: 2, group: G_CARD, desc: '9を2枚出すと、席順がランダムに入れ替わる。' },
+  { id: 'galaxy', name: '銀河鉄道', stars: 1, group: G_CARD, desc: '9を3枚出すと、捨て札から2枚引いて、手札の弱い2枚を捨てる。' },
+  { id: 'discard10', name: '10捨て', stars: 3, group: G_CARD, desc: '10を出した枚数だけ、手札の弱い札を捨てられる。' },
+  { id: 'reverseQ', name: 'Qリバース', stars: 3, group: G_CARD, desc: 'Qを出すと順番が逆回りになる。' },
+  { id: 'loveQ', name: 'Qラブ', stars: 2, group: G_CARD, desc: 'Qを出すと、捨て札から1枚もらう。' },
+  { id: 'bloody', name: 'ブラッディメアリ', stars: 2, group: G_CARD, desc: 'Qを3枚出すと、自分以外の全員が最強の2枚を捨てる。' },
+  { id: 'jeanne', name: 'ジャンヌ・ダルク', stars: 1, group: G_CARD, desc: 'Qを3枚出すと、次の人が最強の2枚を捨てる。' },
+  { id: 'reverseK', name: 'Kリバース', stars: 2, group: G_CARD, desc: 'Kを出すと順番が逆回りになる。' },
+  { id: 'skipK', name: 'Kスキップ', stars: 2, group: G_CARD, desc: 'Kを出した枚数だけ次の人を飛ばす。' },
+  { id: 'nero', name: 'ネロ', stars: 3, group: G_CARD, desc: 'Kを3枚出すと、他の人の手札から最強の1枚をもらう。' },
+  { id: 'arthur', name: 'アーサー', stars: 1, group: G_CARD, desc: 'Kを3枚出すと、以降ジョーカーが10とJの間の強さになる。' },
+  { id: 'mlk', name: 'キング牧師', stars: 2, group: G_CARD, desc: 'Kを出すと、全員が手札の最弱の1枚を次の人に渡す。' },
+  { id: 'jokerRev', name: 'ジョーカー革命', stars: 3, group: G_REV, desc: 'ジョーカーを含んでも革命が成立する。（通常は成立しない）' },
+  { id: 'revNagashi', name: '革命流し', stars: 4, group: G_REV, desc: '8を4枚で起こした革命は、革命返しできない。' },
+  { id: 'coup', name: 'クーデター', stars: 2, group: G_REV, desc: '9を3枚で革命できる。' },
+  { id: 'omen', name: 'オーメン', stars: 2, group: G_REV, desc: '6を3枚で革命できる。以降は革命も特殊札の効果も縛りも起きなくなる。' },
+  { id: 'tobiRev', name: '飛び連番革命', stars: 2, group: G_REV, desc: '飛び連番を4枚以上で出すと革命になる。（飛び連番ルールと併用）' },
+  { id: 'revChoice', name: '革命選択', stars: 3, group: G_REV, desc: '革命になる手でも、出す人が「革命しない」を選べる。' },
+  { id: 'followRev', name: '追革', stars: 2, group: G_REV, desc: '場のペアと同じ数字のペアを出すと革命になる。' },
+  { id: 'superRev', name: '超革命', stars: 2, group: G_REV, desc: '5枚以上で革命すると、そのラウンドは以後革命が起きない。' },
+  { id: 'foul2', name: '2上がり', stars: 3, group: G_OTHER, desc: '2を出して上がると、反則で大貧民になる。' },
+  { id: 'foul8', name: '8上がり', stars: 3, group: G_OTHER, desc: '8を出して上がると、反則で大貧民になる。' },
+  { id: 'foul11', name: '11上がり', stars: 3, group: G_OTHER, desc: 'Jを出して上がると、反則で大貧民になる。' },
+  { id: 'foulJoker', name: 'ジョーカー上がり', stars: 3, group: G_OTHER, desc: 'ジョーカーを含む手で上がると、反則で大貧民になる。' },
+  { id: 'foulS3', name: 'スペ3上がり', stars: 3, group: G_OTHER, desc: '♠3を出して上がると、反則で大貧民になる。' },
+  { id: 'miyako', name: '都落ち', stars: 4, group: G_OTHER, desc: '前回の大富豪が1位になれなかったら、一気に大貧民になる。' },
+  { id: 'gekokujo', name: '都上がり・下克上', stars: 3, group: G_OTHER, desc: '前回の大貧民が1位になると、全員の順位が逆転する。' },
+  { id: 'daihinMeguri', name: '大貧民巡り', stars: 4, group: G_OTHER, desc: '2周目以降は、前回の大貧民から始める。' },
+  { id: 'richRest', name: '大富豪の余裕', stars: 3, group: G_OTHER, desc: '2周目以降、大富豪は最初の1巡は出せない。' },
+  { id: 'zettai', name: '絶対王政', stars: 2, group: G_OTHER, desc: '大富豪は、富豪と1枚、貧民と2枚、大貧民と3枚だけ交換する。' },
+  { id: 'defense', name: '防衛', stars: 2, group: G_OTHER, desc: '大富豪を守った次の交換は、受け取る/渡す枚数が1枚ずつ増える。' },
+  { id: 'tenpen', name: '天変地異', stars: 2, group: G_OTHER, desc: '大貧民/貧民の手札がすべて3〜10なら、交換相手と手札を丸ごと入れ替える。' },
+  { id: 'monopoly', name: 'モノポリー', stars: 2, group: G_OTHER, desc: '配られた手札に同じマークの3〜2がすべて揃うと、その人が即大富豪。' },
+  { id: 'guillotine', name: 'ギロチン時計', stars: 1, group: G_OTHER, desc: '1ラウンドの通算' + GUILLOTINE_N + '回目のパスをした人は、強制的に大貧民になる。' },
+];
+const DEFAULT_RULES = {};
+for (const r of RULE_LIST) DEFAULT_RULES[r.id] = !!r.def;
+function normRules(r) {
+  const out = Object.assign({}, DEFAULT_RULES);
+  if (r && typeof r === 'object') for (const k of Object.keys(DEFAULT_RULES)) if (typeof r[k] === 'boolean') out[k] = r[k];
+  return out;
+}
+// ページにあるが未対応のルール（UIに表示）
+const UNSUPPORTED = ['税収', 'ダミアン', '7付け', '宗教革命', '融合革命', '核爆弾', 'カタパルト', '亰落ち', '物資救援', '独占禁止法', 'どかん'];
+
+const effRev = (g) => g.rev !== !!g.jb;
+
+// ---- 基本ユーティリティ -------------------------------------------------
 function makeDeck() {
   const d = [];
   let id = 0;
@@ -33,11 +133,35 @@ function cardView(c, as) {
   if (as) v.as = as;
   return v;
 }
+const err = (e) => ({ ok: false, error: e });
+function pushLog(g, s, t) {
+  g.log.push({ s, t });
+  if (g.log.length > 40) g.log.shift();
+}
+function ev(g, kind, text, seat) {
+  g.events.push({ id: ++g.evSeq, kind, text, seat: seat == null ? -1 : seat });
+  if (g.events.length > 12) g.events.shift();
+}
+function cardPower(g, c) {
+  if (isJ(c)) return g.arthur ? (effRev(g) ? 7.5 : 10.5) : 100;
+  return effRev(g) ? 18 - c.r : c.r;
+}
+const activeSeats = (g) => g.order.filter((s) => g.hands[s].length > 0);
+function nextActive(g, seat) {
+  const o = g.order, n = o.length;
+  const idx = o.indexOf(seat);
+  for (let k = 1; k <= n; k++) {
+    const s = o[(((idx + g.dir * k) % n) + n) % n];
+    if (g.hands[s].length > 0) return s;
+  }
+  return seat;
+}
 
 // ---- 手の解釈 ----------------------------------------------------------
-// 選んだカードを「同じ数字の組(set)」または「同スートの階段(stair)」として解釈する。
-// ジョーカーはワイルド。階段でジョーカーの置き方が複数ある場合は複数の解釈を返す。
-function interpretations(cards) {
+// 選んだカードを「同じ数字の組(set)」または「一定間隔の連番(stair, step=1が階段)」として解釈する。
+// ジョーカーはワイルド。
+function interpretations(cards, rules) {
+  const R = rules || DEFAULT_RULES;
   const n = cards.length;
   const res = [];
   if (n === 0) return res;
@@ -57,27 +181,45 @@ function interpretations(cards) {
       .concat(jokers.map((j) => cardView(j, rank)));
     res.push({ type: 'set', n, rank, cards, view });
   }
-  if (n >= 3 && nat.every((c) => c.s === nat[0].s) && new Set(nat.map((c) => c.r)).size === nat.length) {
-    const ranks = nat.map((c) => c.r).sort((a, b) => a - b);
-    const lo = ranks[0];
-    const hi = ranks[ranks.length - 1];
-    for (let start = Math.max(3, hi - n + 1); start <= Math.min(lo, 16 - n); start++) {
-      const end = start + n - 1;
-      const view = [];
-      let ji = 0;
-      for (let r = start; r <= end; r++) {
-        const c = nat.find((x) => x.r === r);
-        view.push(c ? cardView(c) : cardView(jokers[ji++], r));
+  if (n >= 3 && new Set(nat.map((c) => c.r)).size === nat.length) {
+    const sameSuit = nat.every((c) => c.s === nat[0].s);
+    const emperor = R.emperor && n === 4 && new Set(nat.map((c) => c.s)).size === nat.length;
+    const steps = [];
+    if (R.stairs) steps.push(1);
+    if (R.tobi) for (let d = 2; d <= 6; d++) steps.push(d);
+    for (const d of steps) {
+      if (!(sameSuit || (emperor && d === 1))) continue;
+      for (let start = 3; start + (n - 1) * d <= 15; start++) {
+        const pos = new Map();
+        let ok = true;
+        for (const c of nat) {
+          const k = (c.r - start) / d;
+          if (!Number.isInteger(k) || k < 0 || k >= n) { ok = false; break; }
+          pos.set(k, c);
+        }
+        if (!ok) continue;
+        const view = [];
+        let ji = 0;
+        for (let k = 0; k < n; k++) {
+          const c = pos.get(k);
+          view.push(c ? cardView(c) : cardView(jokers[ji++], start + k * d));
+        }
+        res.push({ type: 'stair', step: d, n, start, end: start + (n - 1) * d, suit: sameSuit ? nat[0].s : '*', cards, view });
       }
-      res.push({ type: 'stair', n, start, end, suit: nat[0].s, cards, view });
     }
   }
   return res;
 }
 
-function strength(it, rev) {
+function strength(g, it) {
+  const rev = effRev(g);
   if (it.type === 'set') {
-    if (it.rank === 16) return 100;
+    if (it.rank === 16) return g.arthur ? (rev ? 7.5 : 10.5) : 100;
+    if (it.rank === 7) {
+      const nat = it.cards.filter((c) => !isJ(c));
+      if (g.rules.red7 && nat.every(isRed)) return 15.5;
+      if (g.rules.black7 && rev && nat.every((c) => !isRed(c))) return 15.5;
+    }
     return rev ? 18 - it.rank : it.rank;
   }
   return rev ? 18 - it.end : it.start;
@@ -86,18 +228,42 @@ function suitsOf(it) {
   return [...new Set(it.cards.filter((c) => !isJ(c)).map((c) => c.s))].sort();
 }
 const sameArr = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const covers = (it, r) => it.type === 'stair' && it.step === 1 && it.start <= r && it.end >= r;
+const isSetRank = (it, r, n) => it.type === 'set' && it.rank === r && (n == null || it.n === n);
 
-function canPlay(it, field, rev, lock) {
-  if (!field) return true;
-  const f = field.it;
-  // スペ3返し: 場がジョーカー単体のとき ♠3 単体で勝てる
-  if (f.type === 'set' && f.rank === 16 && f.n === 1 && it.type === 'set' && it.n === 1 && it.cards[0].s === 'S' && it.cards[0].r === 3) return true;
-  if (it.type !== f.type || it.n !== f.n) return false;
-  if (lock && !it.cards.every((c) => isJ(c) || lock.includes(c.s))) return false;
-  return strength(it, rev) > strength(f, rev);
+function lockOK(g, it) {
+  if (!g.lock) return true;
+  const ok = g.lockAny
+    ? it.cards.some((c) => isJ(c) || g.lock.includes(c.s))
+    : it.cards.every((c) => isJ(c) || g.lock.includes(c.s));
+  if (!ok) return false;
+  if (g.lockSeq && g.field && strength(g, it) !== strength(g, g.field.it) + 1) return false;
+  return true;
 }
-const isEight = (it) => (it.type === 'set' && it.rank === 8) || (it.type === 'stair' && it.start <= 8 && it.end >= 8);
-const isRevolution = (it) => (it.type === 'set' && it.n >= 4) || (it.type === 'stair' && it.n >= 5);
+
+function canPlay(g, it) {
+  const R = g.rules, f = g.field;
+  if (!f) return true;
+  const fi = f.it;
+  if (f.cut8) {
+    if (R.stop4 && isSetRank(it, 4, 2)) return true;
+    if (R.d7 && it.type === 'set' && it.n === 1 && it.cards[0].s === 'D' && it.cards[0].r === 7) return true;
+    return false;
+  }
+  if (R.sunaarashi && !g.omen && isSetRank(it, 3, 3)) return true;
+  if (fi.type === 'set' && fi.rank === 16 && fi.n === 1 && !g.arthur) {
+    if (R.spade3 && it.type === 'set' && it.n === 1 && it.cards[0].s === 'S' && it.cards[0].r === 3) return true;
+    if (R.sanSan && isSetRank(it, 3, 3)) return true;
+  }
+  if (R.guerrilla && fi.type === 'set' && it.type === 'set' && it.rank === fi.rank && it.rank !== 16 && it.n > fi.n && lockOK(g, it)) return true;
+  if (it.type !== fi.type || it.n !== fi.n) return false;
+  if (it.type === 'stair' && it.step !== fi.step) return false;
+  if (!lockOK(g, it)) return false;
+  const a = strength(g, it), b = strength(g, fi);
+  if (a > b) return true;
+  if (a === b && R.followRev && !g.noRev && it.type === 'set' && it.n >= 2 && it.rank !== 16 && it.rank === fi.rank) return true;
+  return false;
+}
 
 // ---- 候補生成（AIと「出せる手」表示用） ---------------------------------
 function combos(arr, k) {
@@ -108,7 +274,7 @@ function combos(arr, k) {
   })(0, []);
   return out;
 }
-function candidates(hand) {
+function candidates(hand, R) {
   const jokers = hand.filter(isJ);
   const nat = hand.filter((c) => !isJ(c));
   const out = [];
@@ -123,16 +289,31 @@ function candidates(hand) {
     }
   }
   for (let j = 1; j <= jokers.length; j++) out.push(jokers.slice(0, j));
+  const steps = [];
+  if (R.stairs) steps.push(1);
+  if (R.tobi) for (let d = 2; d <= 6; d++) steps.push(d);
   for (const s of SUITS) {
     const m = {};
     nat.filter((c) => c.s === s).forEach((c) => (m[c.r] = c));
-    for (let st = 3; st <= 13; st++) {
-      for (let en = st + 2; en <= 15; en++) {
-        const cs = [];
-        let miss = 0;
-        for (let r = st; r <= en; r++) { if (m[r]) cs.push(m[r]); else miss++; }
-        if (cs.length >= 1 && miss <= jokers.length) out.push(cs.concat(jokers.slice(0, miss)));
+    for (const d of steps) {
+      for (let st = 3; st <= 15; st++) {
+        for (let n = 3; st + (n - 1) * d <= 15; n++) {
+          const cs = [];
+          let miss = 0;
+          for (let k = 0; k < n; k++) { const c = m[st + k * d]; if (c) cs.push(c); else miss++; }
+          if (cs.length >= 1 && miss <= jokers.length) out.push(cs.concat(jokers.slice(0, miss)));
+        }
       }
+    }
+  }
+  if (R.emperor) {
+    for (let st = 3; st <= 12; st++) {
+      (function rec(k, cur, used, miss) {
+        if (miss > jokers.length) return;
+        if (k === 4) { if (cur.length >= 1) out.push(cur.concat(jokers.slice(0, miss))); return; }
+        for (const c of nat.filter((x) => x.r === st + k)) if (!used.has(c.s)) rec(k + 1, cur.concat([c]), new Set([...used, c.s]), miss);
+        rec(k + 1, cur, used, miss + 1);
+      })(0, [], new Set(), 0);
     }
   }
   const seen = new Set();
@@ -145,10 +326,11 @@ function candidates(hand) {
 }
 function legalPlays(g, seat) {
   const res = [];
-  for (const cs of candidates(g.hands[seat])) {
-    const its = interpretations(cs).filter((it) => canPlay(it, g.field, g.rev, g.lock));
+  for (const cs of candidates(g.hands[seat], g.rules)) {
+    let its = interpretations(cs, g.rules).filter((it) => canPlay(g, it));
+    if (g.mustD3) its = its.filter((it) => it.cards.some(isD3));
     if (its.length) {
-      its.sort((a, b) => strength(a, g.rev) - strength(b, g.rev));
+      its.sort((a, b) => strength(g, a) - strength(g, b));
       res.push(its[0]);
     }
   }
@@ -158,35 +340,94 @@ function legalKeys(g, seat) {
   return legalPlays(g, seat).map((it) => it.cards.map((c) => c.id).sort((a, b) => a - b));
 }
 
+// ---- 手札操作 -----------------------------------------------------------
+function takeCards(g, seat, k, strongest) {
+  const h = g.hands[seat].slice().sort((a, b) => (strongest ? cardPower(g, b) - cardPower(g, a) : cardPower(g, a) - cardPower(g, b)));
+  const moved = h.slice(0, Math.min(k, h.length));
+  g.hands[seat] = g.hands[seat].filter((c) => !moved.includes(c));
+  return moved;
+}
+function drawDiscard(g, k, strongest) {
+  const pool = g.discard.filter((c) => !g.justPlayed || !g.justPlayed.has(c.id)); // 今出した札は引けない
+  const d = strongest ? pool.sort((a, b) => cardPower(g, b) - cardPower(g, a)) : shuffle(pool);
+  const got = d.slice(0, Math.min(k, d.length));
+  g.discard = g.discard.filter((c) => !got.includes(c));
+  return got;
+}
+
 // ---- ラウンド進行 -------------------------------------------------------
-function newRound(prevPlaces, n) {
+function newRound(prevPlaces, n, rules, ctx) {
   n = n || 4;
+  const R = normRules(rules);
   const deck = shuffle(makeDeck());
   const hands = Array.from({ length: n }, () => []);
   deck.forEach((c, i) => hands[i % n].push(c));
   const g = {
-    n, hands, turn: 0, field: null, lock: null, rev: false, passes: 0,
-    passedFlags: Array(n).fill(false), lastPlayer: -1, places: [],
-    phase: 'play', exchange: null, log: [], leaderSeat: 0,
+    n, hands, rules: R, order: Array.from({ length: n }, (_, i) => i), dir: 1,
+    turn: 0, field: null, lock: null, lockAny: false, lockSeq: false,
+    rev: false, jb: false, jbNext: false, noRev: false, omen: false, arthur: false, revLock: false,
+    passes: 0, passedFlags: Array(n).fill(false), lastPlayer: -1, lastAce: null,
+    places: [], fouls: [], phase: 'play', exchange: null, log: [], events: [], evSeq: 0,
+    leaderSeat: 0, discard: [], removed: [], trick: [], passTotal: 0,
+    mustD3: false, restSeat: null, restDone: true, prev: null, maintained: false,
   };
-  if (prevPlaces && prevPlaces.length === n) {
-    const p = prevPlaces;
+  const prev = prevPlaces && prevPlaces.length === n ? prevPlaces.slice() : null;
+  g.prev = prev;
+
+  if (R.monopoly) {
+    for (let s = 0; s < n; s++) {
+      for (const su of SUITS) {
+        if (hands[s].filter((c) => c.s === su).length === 13) {
+          pushLog(g, s, 'モノポリー！ ' + SYM[su] + 'を全部そろえた');
+          ev(g, 'win', 'モノポリー！', s);
+          instantWin(g, s);
+          return g;
+        }
+      }
+    }
+  }
+  if (prev) {
+    const extra = R.defense && ctx && ctx.maintained ? 1 : 0;
     g.exchange = { needs: [], log: [] };
     const take = (from, to, k) => {
-      const moved = g.hands[from].slice().sort((x, y) => y.r - x.r).slice(0, k);
-      g.hands[from] = g.hands[from].filter((c) => !moved.includes(c));
+      const moved = takeCards(g, from, k, true);
       g.hands[to].push(...moved);
-      g.exchange.needs.push({ seat: to, n: k, to: from, received: moved.map((c) => c.id) });
-      g.exchange.log.push({ from, to, n: k });
+      g.exchange.needs.push({ seat: to, n: moved.length, to: from, received: moved.map((c) => c.id) });
+      g.exchange.log.push({ from, to, n: moved.length });
     };
-    take(p[n - 1], p[0], 2);
-    if (n >= 4) take(p[n - 2], p[1], 1);
-    g.phase = 'exchange';
-    g.leaderSeat = p[0];
-    g.turn = p[0];
+    const rich = prev[0], poor = prev[n - 1];
+    const pairs = [[poor, rich, 2 + extra]];
+    if (n >= 4) pairs.push([prev[n - 2], prev[1], 1 + extra]);
+    let list = pairs;
+    if (R.zettai) {
+      list = n >= 4 ? [[prev[1], rich, 1], [prev[n - 2], rich, 2], [poor, rich, 3]] : [[prev[1], rich, 1], [poor, rich, 3]];
+      list = list.map((x) => [x[0], x[1], x[2] + extra]);
+    }
+    const swapped = new Set();
+    if (R.tenpen) {
+      for (const [lo, hi] of pairs) {
+        if (g.hands[lo].every((c) => !isJ(c) && c.r >= 3 && c.r <= 10)) {
+          const t = g.hands[lo]; g.hands[lo] = g.hands[hi]; g.hands[hi] = t;
+          swapped.add(lo);
+          pushLog(g, lo, '天変地異！ 手札をまるごと交換');
+          ev(g, 'special', '天変地異！', lo);
+        }
+      }
+    }
+    for (const [from, to, k] of list) if (!swapped.has(from)) take(from, to, k);
+    g.leaderSeat = R.daihinMeguri ? poor : rich;
+    if (R.richRest) { g.restSeat = rich; g.restDone = false; }
+    if (g.exchange.needs.length) {
+      g.phase = 'exchange';
+      g.turn = g.leaderSeat;
+    } else {
+      g.exchange = null;
+      setTurn(g, g.leaderSeat);
+    }
   } else {
-    g.turn = g.hands.findIndex((h) => h.some((c) => c.s === 'D' && c.r === 3));
+    g.turn = g.hands.findIndex((h) => h.some(isD3));
     g.leaderSeat = g.turn;
+    if (R.d3start) g.mustD3 = true;
   }
   return g;
 }
@@ -201,7 +442,7 @@ function giveBack(g, seat, ids) {
   g.hands[seat] = g.hands[seat].filter((c) => !cards.includes(c));
   g.hands[need.to].push(...cards);
   g.exchange.needs = g.exchange.needs.filter((n) => n !== need);
-  if (g.exchange.needs.length === 0) { g.phase = 'play'; g.turn = g.leaderSeat; }
+  if (g.exchange.needs.length === 0) { g.phase = 'play'; setTurn(g, g.leaderSeat); }
   return { ok: true };
 }
 function autoGive(g, seat) {
@@ -211,19 +452,6 @@ function autoGive(g, seat) {
   giveBack(g, seat, ids);
 }
 
-const seatsOf = (g) => Array.from({ length: g.n }, (_, i) => i);
-const err = (e) => ({ ok: false, error: e });
-function nextActive(g, seat) {
-  for (let k = 1; k <= g.n; k++) {
-    const i = (seat + k) % g.n;
-    if (g.hands[i].length > 0) return i;
-  }
-  return seat;
-}
-function pushLog(g, s, t) {
-  g.log.push({ s, t });
-  if (g.log.length > 40) g.log.shift();
-}
 function itText(it) {
   return it.view
     .map((c) => (isJ(c) ? 'JK' + (c.as ? '(' + LABEL[c.as] + ')' : '') : SYM[c.s] + LABEL[c.r]))
@@ -232,14 +460,338 @@ function itText(it) {
 function clearField(g) {
   g.field = null;
   g.lock = null;
+  g.lockAny = false;
+  g.lockSeq = false;
   g.passes = 0;
   g.passedFlags = Array(g.n).fill(false);
+  g.trick = [];
+  if (g.jbNext) g.jbNext = false; else g.jb = false;
+}
+function setTurn(g, seat) {
+  if (g.restSeat != null && !g.restDone && seat === g.restSeat && g.hands[seat].length > 0) {
+    g.restDone = true;
+    pushLog(g, seat, '大富豪の余裕で最初の1巡は休み');
+    if (g.field) { g.passedFlags[seat] = true; g.passes++; }
+    const nx = nextActive(g, seat);
+    if (g.field && flushIfAllPassed(g)) return;
+    g.turn = nx;
+    return;
+  }
+  g.turn = seat;
+}
+function instantWin(g, seat) {
+  const rest = g.order.filter((s) => s !== seat).sort((a, b) => g.hands[a].length - g.hands[b].length);
+  g.places = [seat].concat(rest);
+  g.fouls = [];
+  g.phase = 'end';
+  applyEndRules(g);
+}
+function applyEndRules(g) {
+  const R = g.rules, p = g.prev, n = g.n;
+  g.maintained = !!(p && g.places[0] === p[0]);
+  if (!p) return;
+  if (R.gekokujo && g.places[0] === p[n - 1] && p[n - 1] !== p[0]) {
+    g.places = p.slice().reverse();
+    pushLog(g, g.places[0], '下克上！ 全員の順位が逆転');
+    ev(g, 'special', '下克上！', g.places[0]);
+    return;
+  }
+  if (R.miyako && g.places[0] !== p[0]) {
+    g.places = g.places.filter((s) => s !== p[0]).concat([p[0]]);
+    pushLog(g, p[0], '都落ち！ 大貧民に転落');
+    ev(g, 'special', '都落ち！', p[0]);
+  }
+}
+function finish(g) {
+  for (const s of activeSeats(g)) if (!g.places.includes(s) && !g.fouls.includes(s)) g.places.push(s);
+  g.places = g.places.concat(g.fouls.slice().reverse());
+  g.phase = 'end';
+  applyEndRules(g);
+}
+function checkEnd(g) {
+  if (g.phase === 'end') return true;
+  if (activeSeats(g).length <= 1) { finish(g); return true; }
+  return false;
+}
+function foulCheck(g, it) {
+  const R = g.rules;
+  const cs = it.cards;
+  return (R.foul2 && cs.some((c) => c.r === 15)) || (R.foul8 && cs.some((c) => c.r === 8)) || (R.foul11 && cs.some((c) => c.r === 11)) ||
+    (R.foulJoker && cs.some(isJ)) || (R.foulS3 && cs.some((c) => c.s === 'S' && c.r === 3));
+}
+function settleOuts(g, lastSeat, it) {
+  const done = new Set([...g.places, ...g.fouls]);
+  const order = [lastSeat].concat(g.order.filter((s) => s !== lastSeat));
+  for (const s of order) {
+    if (g.hands[s].length === 0 && !done.has(s)) {
+      done.add(s);
+      if (it && s === lastSeat && foulCheck(g, it)) {
+        g.fouls.push(s);
+        pushLog(g, s, '反則上がり！ 最下位へ');
+        ev(g, 'foul', '反則上がり…', s);
+      } else {
+        g.places.push(s);
+        pushLog(g, s, '上がり！');
+        ev(g, 'out', '上がり！', s);
+      }
+    }
+  }
+}
+function flushIfAllPassed(g) {
+  if (!g.field) return false;
+  const others = g.order.filter((i) => g.hands[i].length > 0 && i !== g.lastPlayer);
+  if (g.passes < others.length) return false;
+  const lastOut = g.hands[g.lastPlayer].length === 0;
+  if (g.field.lucky && !lastOut) {
+    pushLog(g, g.lastPlayer, 'ラッキーセブン成功！ 大富豪に');
+    ev(g, 'win', 'ラッキーセブン！', g.lastPlayer);
+    instantWin(g, g.lastPlayer);
+    return true;
+  }
+  let leader = lastOut ? nextActive(g, g.lastPlayer) : g.lastPlayer;
+  if (g.rules.nextAce && g.lastAce != null && g.hands[g.lastAce].length > 0) leader = g.lastAce;
+  g.lastAce = null;
+  clearField(g);
+  pushLog(g, -1, '場が流れました');
+  g.turn = leader;
+  return true;
 }
 
-function doPlay(g, seat, ids) {
+// ---- 革命・縛り ---------------------------------------------------------
+function revTrigger(g, it, prevF) {
+  const R = g.rules;
+  if (g.noRev) return false;
+  const jokerOK = !it.cards.some(isJ) || R.jokerRev;
+  if (R.revolution && it.type === 'set' && it.n >= 4 && jokerOK) return true;
+  if (it.type === 'stair' && jokerOK) {
+    if (it.step === 1 && ((R.stairRev && it.n >= 5) || (R.stairRev3 && it.n >= 3))) return true;
+    if (it.step >= 2 && R.tobiRev && it.n >= 4) return true;
+  }
+  if (R.coup && isSetRank(it, 9, 3)) return true;
+  if (R.omen && isSetRank(it, 6, 3)) return true;
+  if (R.followRev && prevF && !prevF.cut8 && prevF.it.type === 'set' && prevF.it.n >= 2 && it.type === 'set' && it.n === prevF.it.n && it.rank === prevF.it.rank && it.rank !== 16) return true;
+  return false;
+}
+function applyLock(g, it, prevF) {
+  const R = g.rules;
+  if (!R.lock || g.omen || !prevF || prevF.cut8 || g.lock) return;
+  if (it.type === 'stair' && it.step >= 2 && !R.tobiShiba) return;
+  const ps = suitsOf(it), fs = suitsOf(prevF.it);
+  let locked = false;
+  if (ps.length && sameArr(ps, fs)) {
+    g.lock = ps; g.lockAny = false; locked = true;
+  } else if (R.katashiba && it.n >= 2 && prevF.it.n >= 2) {
+    const inter = ps.filter((s) => fs.includes(s));
+    if (inter.length) { g.lock = inter; g.lockAny = true; locked = true; }
+  }
+  if (locked) {
+    const consecutive = strength(g, it) === strength(g, prevF.it) + 1;
+    if (consecutive && ((it.n === 1 && R.gekishiba) || (it.n >= 2 && R.ryogeki))) g.lockSeq = true;
+    pushLog(g, -1, '縛り！ ' + g.lock.map((s) => SYM[s]).join('') + (g.lockSeq ? '（続き番号）' : ''));
+    ev(g, 'lock', g.lockSeq ? '激シバ！' : '縛り！', g.lastPlayer);
+  }
+}
+function cutsField(g, it) {
+  const R = g.rules;
+  if (g.omen) return false;
+  const ranks = [];
+  if (g.rev && (R.cutRev6 || R.cutRev7)) { if (R.cutRev6) ranks.push(6); if (R.cutRev7) ranks.push(7); }
+  else if (R.eight) ranks.push(8);
+  if (R.cut4) ranks.push(4);
+  if (it.type === 'set' && ranks.includes(it.rank)) return true;
+  if (it.type === 'stair' && it.step === 1 && ranks.some((r) => covers(it, r))) return true;
+  if (R.dignity && it.type === 'stair' && it.step === 1 && it.start <= 11 && it.end >= 13) return true;
+  return false;
+}
+function counterPossible(g, seat) {
+  const R = g.rules;
+  for (const s of activeSeats(g)) {
+    if (s === seat) continue;
+    const h = g.hands[s];
+    if (R.stop4) {
+      const fours = h.filter((c) => c.r === 4).length, jk = h.filter(isJ).length;
+      if (fours + jk >= 2 && (fours >= 1 || jk >= 2)) return true;
+    }
+    if (R.d7 && h.some((c) => c.s === 'D' && c.r === 7)) return true;
+  }
+  return false;
+}
+
+// ---- カード効果 ---------------------------------------------------------
+function applyEffects(g, seat, it, prevF, opts) {
+  const R = g.rules;
+  const special = !g.omen;
+  const nat = it.cards.filter((c) => !isJ(c));
+  const others = () => activeSeats(g).filter((s) => s !== seat);
+  const name = (s) => 'P' + (s + 1);
+  let omenNow = false;
+
+  // 革命
+  if (revTrigger(g, it, prevF) && !(opts.noRev && R.revChoice)) {
+    if (!g.rev || (R.revBack && !g.revLock)) {
+      g.rev = !g.rev;
+      pushLog(g, -1, g.rev ? '革命！ 強さが逆転' : '革命返し！ 強さが元に戻る');
+      ev(g, g.rev ? 'revolution' : 'revBack', g.rev ? '革命！' : '革命返し！', seat);
+      if (R.revNagashi && isSetRank(it, 8)) g.revLock = true;
+      if (R.superRev && it.cards.length >= 5) g.noRev = true;
+    }
+    if (R.omen && isSetRank(it, 6, 3)) omenNow = true;
+  }
+  if (special) {
+    // バック系
+    if (R.jBack && (isSetRank(it, 11) || covers(it, 11))) {
+      g.jb = !g.jb;
+      pushLog(g, -1, '11バック！ この場だけ強さが逆転');
+      ev(g, 'jback', '11バック！', seat);
+      if (R.jBack3 && isSetRank(it, 11, 3)) g.jbNext = true;
+    }
+    if (R.back2 && (isSetRank(it, 15) || covers(it, 15))) {
+      g.jb = !g.jb;
+      pushLog(g, -1, '2バック！');
+      ev(g, 'jback', '2バック！', seat);
+    }
+    if (R.back6 && g.jb && (isSetRank(it, 6) || covers(it, 6))) {
+      g.jb = false;
+      pushLog(g, -1, '6戻し！');
+      ev(g, 'special', '6戻し！', seat);
+    }
+    if (it.type === 'set' && it.rank !== 16) {
+      const r = it.rank, k = it.n;
+      if (R.nextAce && r === 14) g.lastAce = seat;
+      if (R.daikaku && r === 15 && k === 4) {
+        pushLog(g, seat, '大革命！ 2を4枚で勝利');
+        ev(g, 'win', '大革命！', seat);
+        instantWin(g, seat);
+        return;
+      }
+      if (R.lucky7 && r === 7 && k === 3) g.field.lucky = true;
+      if (R.yamiichi && r === 14 && k === 3) {
+        const cand = others().filter((s) => g.hands[s].length >= 2);
+        if (cand.length) {
+          const t = cand[Math.floor(Math.random() * cand.length)];
+          const give = takeCards(g, seat, 2, false);
+          const get = takeCards(g, t, 2, true);
+          g.hands[t].push(...give);
+          g.hands[seat].push(...get);
+          pushLog(g, seat, '闇市！ ' + name(t) + 'と強い札を交換');
+          ev(g, 'special', '闇市！', seat);
+        }
+      }
+      if (R.zombie && r === 3 && k === 3 && g.discard.length) {
+        const c = drawDiscard(g, 1, false)[0];
+        const t = nextActive(g, seat);
+        if (c && t !== seat) { g.hands[t].push(c); pushLog(g, seat, 'ゾンビ！ ' + name(t) + 'に札を押し付け'); ev(g, 'special', 'ゾンビ！', seat); }
+        else if (c) g.discard.push(c);
+      }
+      if (R.death && r === 4 && k === 3) {
+        for (const s of others()) g.discard.push(...takeCards(g, s, 1, true));
+        pushLog(g, seat, 'DEATH！ 全員が最強の札を捨てる');
+        ev(g, 'death', 'DEATH！', seat);
+      }
+      if (R.color5 && r === 5 && nat.length) {
+        g.lock = [...new Set(nat.map((c) => c.s))].sort(); g.lockAny = false; g.lockSeq = false;
+        pushLog(g, -1, '5番目の色！ ' + g.lock.map((s) => SYM[s]).join('') + 'のみ');
+        ev(g, 'lock', '5番目の色！', seat);
+      }
+      if (R.red5 && r === 5 && nat.some(isRed)) {
+        const c = others();
+        if (c.length) {
+          const t = c[Math.floor(Math.random() * c.length)];
+          const pool = shuffle(g.hands[seat].concat(g.hands[t]));
+          const mine = Math.floor(pool.length / 2);
+          g.hands[seat] = pool.slice(0, mine);
+          g.hands[t] = pool.slice(mine);
+          pushLog(g, seat, '赤い5！ ' + name(t) + 'と手札を分け直し');
+          ev(g, 'special', '赤い5！', seat);
+        }
+      }
+      if (R.satan && r === 6 && k === 3) {
+        const got = drawDiscard(g, 1, true);
+        g.hands[seat].push(...got);
+        if (got.length) { pushLog(g, seat, 'サタン！ 捨て札から最強札を回収'); ev(g, 'special', 'サタン！', seat); }
+      }
+      if (R.pass7 && r === 7) {
+        const t = nextActive(g, seat);
+        if (t !== seat) {
+          const moved = takeCards(g, seat, k, false);
+          g.hands[t].push(...moved);
+          if (moved.length) { pushLog(g, seat, '7渡し！ ' + moved.length + '枚を' + name(t) + 'へ'); ev(g, 'special', '7渡し！', seat); }
+        }
+      }
+      if (R.black7draw && r === 7 && nat.some((c) => !isRed(c))) {
+        const got = drawDiscard(g, k, false);
+        g.hands[seat].push(...got);
+        if (got.length) { pushLog(g, seat, '黒い7！ 捨て札から' + got.length + '枚'); ev(g, 'special', '黒い7！', seat); }
+      }
+      if (R.reverse9 && r === 9) { g.dir *= -1; pushLog(g, -1, '9リバース！ 逆回り'); ev(g, 'reverse', 'リバース！', seat); }
+      if (R.shuffle9 && r === 9 && k === 2) { g.order = shuffle(g.order.slice()); pushLog(g, -1, '9シャッフル！ 席順が入れ替わった'); ev(g, 'special', '席順シャッフル！', seat); }
+      if (R.galaxy && r === 9 && k === 3) {
+        const got = drawDiscard(g, 2, false);
+        g.hands[seat].push(...got);
+        const back = takeCards(g, seat, got.length, false);
+        g.discard.push(...back);
+        pushLog(g, seat, '銀河鉄道！ 捨て札と手札を入れ替え');
+        ev(g, 'special', '銀河鉄道！', seat);
+      }
+      if (R.discard10 && r === 10) {
+        const d = takeCards(g, seat, k, false);
+        g.discard.push(...d);
+        if (d.length) { pushLog(g, seat, '10捨て！ ' + d.length + '枚を捨てた'); ev(g, 'special', '10捨て！', seat); }
+      }
+      if (R.reverseQ && r === 12) { g.dir *= -1; pushLog(g, -1, 'Qリバース！ 逆回り'); ev(g, 'reverse', 'リバース！', seat); }
+      if (R.loveQ && r === 12) {
+        const got = drawDiscard(g, 1, false);
+        g.hands[seat].push(...got);
+        if (got.length) { pushLog(g, seat, 'Qラブ！ 捨て札を1枚獲得'); ev(g, 'special', 'Qラブ！', seat); }
+      }
+      if (R.bloody && r === 12 && k === 3) {
+        for (const s of others()) g.discard.push(...takeCards(g, s, 2, true));
+        pushLog(g, seat, 'ブラッディメアリ！ 全員が最強2枚を捨てる');
+        ev(g, 'death', 'ブラッディメアリ！', seat);
+      }
+      if (R.jeanne && r === 12 && k === 3) {
+        const t = nextActive(g, seat);
+        if (t !== seat) { g.discard.push(...takeCards(g, t, 2, true)); pushLog(g, seat, 'ジャンヌ・ダルク！ ' + name(t) + 'が最強2枚を捨てる'); ev(g, 'death', 'ジャンヌ・ダルク！', seat); }
+      }
+      if (R.reverseK && r === 13) { g.dir *= -1; pushLog(g, -1, 'Kリバース！ 逆回り'); ev(g, 'reverse', 'リバース！', seat); }
+      if (R.nero && r === 13 && k === 3) {
+        let best = null, from = -1;
+        for (const s of others()) for (const c of g.hands[s]) if (!best || cardPower(g, c) > cardPower(g, best)) { best = c; from = s; }
+        if (best) {
+          g.hands[from] = g.hands[from].filter((c) => c !== best);
+          g.hands[seat].push(best);
+          pushLog(g, seat, 'ネロ！ ' + name(from) + 'から最強札を徴収');
+          ev(g, 'special', 'ネロ！', seat);
+        }
+      }
+      if (R.arthur && r === 13 && k === 3) {
+        g.arthur = true;
+        pushLog(g, -1, 'アーサー！ ジョーカーが弱体化');
+        ev(g, 'special', 'アーサー！', seat);
+      }
+      if (R.mlk && r === 13) {
+        const act = activeSeats(g);
+        const given = new Map();
+        for (const s of act) given.set(s, takeCards(g, s, 1, false));
+        for (const s of act) g.hands[nextActive(g, s)].push(...given.get(s));
+        pushLog(g, seat, 'キング牧師！ 全員が隣に1枚渡す');
+        ev(g, 'special', 'キング牧師！', seat);
+      }
+    }
+  }
+  if (omenNow) {
+    g.omen = true; g.noRev = true;
+    pushLog(g, -1, 'オーメン！ 以降は革命・特殊札・縛りが無効');
+    ev(g, 'special', 'オーメン！', seat);
+  }
+}
+
+function doPlay(g, seat, ids, opts) {
+  opts = opts || {};
   if (g.phase !== 'play') return err('今はカードを出せません');
   if (g.turn !== seat) return err('あなたの番ではありません');
   if (!Array.isArray(ids) || !ids.length) return err('カードを選んでください');
+  const R = g.rules;
   const cards = [];
   const seen = new Set();
   for (const id of ids) {
@@ -248,49 +800,73 @@ function doPlay(g, seat, ids) {
     seen.add(id);
     cards.push(c);
   }
-  const its = interpretations(cards);
+  const its = interpretations(cards, R);
   if (!its.length) return err('その組み合わせは出せません');
-  const ok = its.filter((it) => canPlay(it, g.field, g.rev, g.lock));
+  let ok = its.filter((it) => canPlay(g, it));
   if (!ok.length) return err('そのカードは場に出せません（枚数・強さ・縛りを確認）');
-  ok.sort((a, b) => strength(a, g.rev) - strength(b, g.rev));
-  const it = ok[0];
-
-  g.hands[seat] = g.hands[seat].filter((c) => !seen.has(c.id));
-  if (g.field && !g.lock) {
-    const ps = suitsOf(it);
-    if (ps.length && sameArr(ps, suitsOf(g.field.it))) {
-      g.lock = ps;
-      pushLog(g, -1, '縛り！ ' + ps.map((s) => SYM[s]).join(''));
-    }
+  if (g.mustD3) {
+    ok = ok.filter((it) => it.cards.some(isD3));
+    if (!ok.length) return err('最初の手はダイヤの3を含めてください');
   }
-  g.field = { it, player: seat };
+  ok.sort((a, b) => strength(g, a) - strength(g, b));
+  const it = ok[0];
+  const prevF = g.field;
+  g.mustD3 = false;
+  g.hands[seat] = g.hands[seat].filter((c) => !seen.has(c.id));
+  g.discard.push(...cards);
+  g.trick.push(...cards);
+  g.justPlayed = new Set(cards.map((c) => c.id));
   g.lastPlayer = seat;
+  applyLock(g, it, prevF);
+  g.field = { it, player: seat };
   g.passes = 0;
   g.passedFlags = Array(g.n).fill(false);
   pushLog(g, seat, itText(it));
 
-  if (isRevolution(it)) {
-    g.rev = !g.rev;
-    pushLog(g, -1, g.rev ? '革命！ 強さが逆転' : '革命返し！ 強さが元に戻る');
-  }
+  applyEffects(g, seat, it, prevF, opts);
+  if (g.phase === 'end') return { ok: true };
+  settleOuts(g, seat, it);
+  if (checkEnd(g)) return { ok: true };
   const out = g.hands[seat].length === 0;
-  if (out) {
-    g.places.push(seat);
-    pushLog(g, seat, '上がり！');
-    const remaining = g.hands.map((_, i) => i).filter((i) => g.hands[i].length > 0);
-    if (remaining.length <= 1) {
-      if (remaining.length === 1) g.places.push(remaining[0]);
-      g.phase = 'end';
+
+  if (cutsField(g, it)) {
+    const label = isSetRank(it, 4) ? '4切り！' : (it.type === 'stair' && R.dignity && it.start <= 11 && it.end >= 13 ? '威厳！' : (isSetRank(it, 8) || covers(it, 8) ? '8切り！' : (isSetRank(it, 7) ? '7切り！' : '切り！')));
+    ev(g, 'cut', label, seat);
+    if (isSetRank(it, 8, 1) && (R.stop4 || R.d7) && counterPossible(g, seat) && !out) {
+      g.field.cut8 = true;
+      pushLog(g, -1, label + ' 対抗できる人は出してください');
+      g.turn = nextActive(g, seat);
       return { ok: true };
     }
-  }
-  if (isEight(it)) {
-    pushLog(g, -1, '8切り！ 場が流れる');
+    if (R.eight3 && isSetRank(it, 8) && it.n >= 3) {
+      const ids2 = new Set(g.trick.map((c) => c.id));
+      const gone = g.discard.filter((c) => ids2.has(c.id)); // 手札に戻った札は消さない
+      g.removed.push(...gone);
+      g.discard = g.discard.filter((c) => !ids2.has(c.id));
+      pushLog(g, -1, '強化8切り！ この場のカードは消滅');
+    }
+    pushLog(g, -1, label + ' 場が流れる');
     clearField(g);
+    g.lastAce = null;
     g.turn = out ? nextActive(g, seat) : seat;
     return { ok: true };
   }
-  g.turn = nextActive(g, seat);
+
+  let next = nextActive(g, seat);
+  if (it.type === 'set' && !g.omen && it.rank !== 16 && ((R.skip5 && it.rank === 5) || (R.skipK && it.rank === 13))) {
+    let skipped = 0;
+    for (let t = 0; t < it.n; t++) {
+      if (next === seat) break;
+      g.passedFlags[next] = true;
+      g.passes++;
+      skipped++;
+      pushLog(g, next, 'スキップ！');
+      next = nextActive(g, next);
+    }
+    if (skipped) ev(g, 'skip', 'スキップ！', seat);
+    if (flushIfAllPassed(g)) return { ok: true };
+  }
+  setTurn(g, next);
   return { ok: true };
 }
 
@@ -300,21 +876,23 @@ function doPass(g, seat) {
   if (!g.field) return err('最初の手番はパスできません');
   g.passes++;
   g.passedFlags[seat] = true;
+  g.passTotal++;
   pushLog(g, seat, 'パス');
-  const others = g.hands.map((_, i) => i).filter((i) => g.hands[i].length > 0 && i !== g.lastPlayer);
-  if (g.passes >= others.length) {
-    const leader = g.hands[g.lastPlayer].length > 0 ? g.lastPlayer : nextActive(g, g.lastPlayer);
-    clearField(g);
-    pushLog(g, -1, '場が流れました');
-    g.turn = leader;
-  } else {
-    g.turn = nextActive(g, seat);
+  if (g.rules.guillotine && g.passTotal === GUILLOTINE_N) {
+    g.discard.push(...g.hands[seat]);
+    g.hands[seat] = [];
+    g.fouls.push(seat);
+    pushLog(g, seat, 'ギロチン！ 強制的に大貧民へ');
+    ev(g, 'foul', 'ギロチン！', seat);
+    if (checkEnd(g)) return { ok: true };
   }
+  if (flushIfAllPassed(g)) return { ok: true };
+  setTurn(g, nextActive(g, seat));
   return { ok: true };
 }
 
 // ---- AI -----------------------------------------------------------------
-function handAvg(cards, rev) {
+function handAvg(g, cards, rev) {
   if (!cards.length) return 0;
   let t = 0;
   for (const c of cards) t += isJ(c) ? 20 : rev ? 18 - c.r : c.r;
@@ -323,15 +901,15 @@ function handAvg(cards, rev) {
 function costOf(g, seat, it, leading, level) {
   const ids = new Set(it.cards.map((c) => c.id));
   const remaining = g.hands[seat].filter((c) => !ids.has(c.id));
-  if (remaining.length === 0) return -1000;
-  const s = strength(it, g.rev);
+  if (remaining.length === 0) return foulCheck(g, it) ? 50 : -1000;
+  const s = strength(g, it);
   let cost = s >= 100 ? 30 : s;
   cost += it.cards.filter(isJ).length * 5;
   cost -= it.n * 1.2;
-  if (isEight(it) && !leading) cost -= 2;
-  if (isRevolution(it)) {
-    const now = handAvg(remaining, g.rev);
-    const flipped = handAvg(remaining, !g.rev);
+  if (cutsField(g, it) && !leading) cost -= 2;
+  if (revTrigger(g, it, g.field)) {
+    const now = handAvg(g, remaining, effRev(g));
+    const flipped = handAvg(g, remaining, !effRev(g));
     cost += flipped > now + 0.8 ? -8 : 8;
   }
   if (!leading && !g.lock && g.field) {
@@ -349,6 +927,7 @@ function aiChoose(g, seat, level) {
   const oppMin = Math.min(...g.hands.map((h, i) => (i === seat || h.length === 0 ? 99 : h.length)));
   const scored = legal.map((it) => ({ it, cost: costOf(g, seat, it, leading, level) })).sort((a, b) => a.cost - b.cost);
   const play = (x) => ({ type: 'play', ids: x.it.cards.map((c) => c.id) });
+  if (g.field && g.field.cut8) return Math.random() < 0.7 ? play(scored[0]) : { type: 'pass' };
   if (level === 'easy') {
     if (!leading && Math.random() < 0.2) return { type: 'pass' };
     const top = scored.slice(0, Math.min(4, scored.length));
@@ -356,7 +935,7 @@ function aiChoose(g, seat, level) {
   }
   const best = scored[0];
   if (!leading && best.cost > -500) {
-    const s = strength(best.it, g.rev);
+    const s = strength(g, best.it);
     const saveLimit = level === 'hard' ? 13 : 15;
     const oppLimit = level === 'hard' ? 3 : 5;
     if (s >= saveLimit && oppMin > oppLimit && hand.length > best.it.n + 2) return { type: 'pass' };
@@ -365,8 +944,8 @@ function aiChoose(g, seat, level) {
 }
 
 module.exports = {
-  SUITS, SYM, LABEL, makeDeck, shuffle, sortHand, cardView, interpretations, strength, canPlay,
-  legalKeys, legalPlays, newRound, giveBack, autoGive, doPlay, doPass, aiChoose, nextActive,
+  SUITS, SYM, LABEL, RULES: RULE_LIST, DEFAULT_RULES, UNSUPPORTED, normRules, makeDeck, shuffle, sortHand, cardView,
+  interpretations, strength, canPlay, legalKeys, legalPlays, newRound, giveBack, autoGive, doPlay, doPass, aiChoose, nextActive, effRev,
 };
 
 return module.exports;
@@ -379,7 +958,7 @@ const INDEX_HTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>大富豪オンライン</title>
 <style>
-:root{--bg:#0f3b2c;--bg2:#0a2a1f;--card:#fffdf6;--ink:#1d1d1f;--red:#c62828;--gold:#f4c542;--cw:56px;--ch:80px;--ov:-24px}
+:root{--bg:#0f3b2c;--bg2:#0a2a1f;--card:#fffdf6;--ink:#1d1d1f;--red:#c62828;--gold:#f4c542;--cw:clamp(58px,10.5vw,96px);--ch:calc(var(--cw)*1.45)}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg2);color:#fff;font-family:"Hiragino Sans","Yu Gothic",Meiryo,system-ui,sans-serif}
 button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:10px 16px;font-weight:700;background:var(--gold);color:#3a2a00}
@@ -387,7 +966,7 @@ button.sub{background:#ffffff22;color:#fff}
 button:disabled{opacity:.35;cursor:not-allowed}
 input,select{font:inherit;padding:10px 12px;border-radius:10px;border:1px solid #ffffff44;background:#00000040;color:#fff;min-width:0}
 select option{color:#000}
-.screen{display:none;min-height:100%;padding:16px;max-width:760px;margin:0 auto}
+.screen{display:none;min-height:100%;padding:16px;max-width:820px;margin:0 auto}
 .screen.on{display:block}
 h1{font-size:28px;margin:24px 0 4px;text-align:center}
 .sub-title{text-align:center;opacity:.7;margin-bottom:20px}
@@ -398,73 +977,108 @@ h1{font-size:28px;margin:24px 0 4px;text-align:center}
 .code{font-size:40px;letter-spacing:8px;font-weight:800;text-align:center;color:var(--gold)}
 .seat{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:10px;background:#00000030;margin:6px 0}
 .seat .tag{font-size:12px;opacity:.7}
-#toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);background:#000c;padding:10px 16px;border-radius:12px;z-index:50;display:none;max-width:90%}
+#toast{position:fixed;left:50%;top:14px;transform:translateX(-50%);background:#000c;padding:10px 16px;border-radius:12px;z-index:60;display:none;max-width:90%}
+/* ルール選択 */
+.rp-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:13px}
+.rp-bar select{padding:6px 8px}
+.rp-bar button{padding:6px 10px;font-size:13px}
+details.rg{background:#00000030;border-radius:12px;margin:6px 0}
+details.rg>summary{cursor:pointer;padding:10px 12px;font-weight:700;list-style:none;display:flex;justify-content:space-between}
+details.rg>summary::-webkit-details-marker{display:none}
+details.rg>summary .cnt{font-weight:400;opacity:.7;font-size:12px}
+.rl{display:grid;gap:4px;padding:0 8px 8px}
+.rl label{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:10px;background:#ffffff0d;font-size:13px;line-height:1.45}
+.rl label.on{background:#f4c54233;outline:1px solid #f4c54288}
+.rl input{margin-top:3px;flex:none;width:18px;height:18px;padding:0}
+.rl .nm{font-weight:700}
+.rl .st{color:var(--gold);font-size:11px;margin-left:6px;letter-spacing:1px}
+.rl small{display:block;opacity:.75}
+.chiprow{display:flex;gap:6px;flex-wrap:wrap}
+.chip{background:#ffffff1f;border-radius:99px;padding:3px 10px;font-size:12px}
+.chip.hot{background:var(--gold);color:#3a2a00;font-weight:800}
+.chip.red{background:#e53935;color:#fff;font-weight:800}
 /* ゲーム */
 #game{padding:0;max-width:none;height:100vh;height:100dvh;overflow:hidden;background:radial-gradient(ellipse at center,var(--bg) 0%,var(--bg2) 100%)}
 #game.on{display:flex;flex-direction:column}
-.top{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;font-size:13px;gap:8px}
-.chips{display:flex;gap:6px;flex-wrap:wrap}
-.chip{background:#ffffff1f;border-radius:99px;padding:3px 10px;font-size:12px}
-.chip.hot{background:var(--gold);color:#3a2a00;font-weight:800}
-.table{flex:1;display:grid;grid-template-columns:1fr 2fr 1fr;grid-template-rows:auto 1fr;gap:4px;padding:0 8px;min-height:0}
-.opp{background:#00000028;border-radius:14px;padding:8px;text-align:center;font-size:12px;border:2px solid transparent;position:relative}
-.opp.turn{border-color:var(--gold);box-shadow:0 0 14px #f4c54288}
-.opp .nm{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.opp .ttl{font-size:11px;color:var(--gold)}
-.opp .cnt{font-size:22px;font-weight:800}
-.opp .pass{position:absolute;right:6px;top:6px;background:#fff;color:#333;border-radius:8px;padding:1px 6px;font-size:11px}
+.top{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;font-size:13px;gap:8px;flex-wrap:wrap}
+.opps{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:0 8px}
+.opp{flex:1 1 110px;max-width:170px;background:#00000030;border-radius:14px;padding:7px 6px;text-align:center;border:2px solid transparent;position:relative;min-width:0}
+.opp.turn{border-color:var(--gold);box-shadow:0 0 14px #f4c54299}
+.opp .nm{font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.opp .ttl{font-size:11px;color:var(--gold);min-height:15px}
+.opp .cnt{font-size:26px;font-weight:800;line-height:1.1}
+.opp .cnt small{font-size:11px;font-weight:400}
+.opp .pass{position:absolute;right:4px;top:4px;background:#fff;color:#333;border-radius:8px;padding:1px 6px;font-size:11px}
 .opp .off{opacity:.5}
-.fan{display:flex;justify-content:center;margin-top:2px;height:18px}
-.fan i{display:block;width:10px;height:18px;border-radius:2px;background:linear-gradient(135deg,#3b5bdb,#1c3aa9);border:1px solid #fff8;margin-left:-5px}
-.opps{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;padding:0 6px}
-.opps .opp{flex:1 1 84px;max-width:128px;padding:5px}
-.opps .opp .cnt{font-size:18px}
-.center{flex:1}
-.opp.l{grid-column:1;grid-row:2;align-self:center}
-.opp.t{grid-column:2;grid-row:1}
-.opp.r{grid-column:3;grid-row:2;align-self:center}
-.center{grid-column:2;grid-row:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:0}
-.field{display:flex;gap:4px;justify-content:center;flex-wrap:wrap;min-height:calc(var(--ch)*.8)}
-.field .card{--cw:46px;--ch:66px;font-size:.85em}
-.fieldwho{font-size:12px;opacity:.8;min-height:16px}
-.log{font-size:11px;opacity:.8;text-align:center;line-height:1.5;max-height:5.5em;overflow:hidden}
+.opp .pt{font-size:11px;opacity:.7}
+.center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:0;padding:4px 8px}
+.field{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;min-height:calc(var(--ch)*.85)}
+.field .card{--cw:clamp(52px,9vw,82px)}
+.fieldwho{font-size:13px;opacity:.85;min-height:18px}
+.log{font-size:12px;opacity:.8;text-align:center;line-height:1.5;max-height:6em;overflow:hidden}
 .me{padding:6px 8px calc(8px + env(safe-area-inset-bottom));background:#0006}
-.meinfo{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:4px;gap:6px}
+.meinfo{display:flex;justify-content:space-between;align-items:center;font-size:14px;margin-bottom:2px;gap:6px}
 .meinfo.turn .nm{color:var(--gold);font-weight:800}
-.hand{display:flex;justify-content:center;padding-top:16px;min-height:calc(var(--ch) + 22px);overflow-x:auto}
-.hand .card{margin-left:var(--ov);cursor:pointer;transition:transform .12s}
-.hand .card:first-child{margin-left:0}
-.hand .card.sel{transform:translateY(-14px);box-shadow:0 0 0 3px var(--gold),0 6px 12px #0008}
+.hand{display:flex;justify-content:center;padding-top:22px;min-height:calc(var(--ch) + 30px);overflow-x:auto;overflow-y:visible}
+.hand .card{cursor:pointer;transition:transform .12s}
+.hand .card.sel{transform:translateY(-20px);box-shadow:0 0 0 3px var(--gold),0 8px 14px #0009}
 .hand .card.dim{filter:brightness(.55)}
-.btns{display:flex;gap:8px;justify-content:center;margin-top:6px;flex-wrap:wrap}
-.card{width:var(--cw);height:var(--ch);flex:none;background:var(--card);color:var(--ink);border-radius:8px;border:1px solid #0004;position:relative;box-shadow:0 2px 5px #0006;user-select:none;font-weight:800}
+.btns{display:flex;gap:10px;justify-content:center;margin-top:8px;flex-wrap:wrap;align-items:center}
+.btns button{font-size:17px;padding:12px 22px}
+.btns label{font-size:14px;display:flex;gap:6px;align-items:center}
+.hint{text-align:center;font-size:14px;color:var(--gold);min-height:20px}
+.card{width:var(--cw);height:var(--ch);flex:none;background:var(--card);color:var(--ink);border-radius:calc(var(--cw)*.1);border:1px solid #0004;position:relative;box-shadow:0 2px 6px #0006;user-select:none;font-weight:800;font-size:calc(var(--cw)*.3)}
 .card.red{color:var(--red)}
-.card .rk{position:absolute;left:5px;top:3px;font-size:1.05em;line-height:1}
-.card .su{position:absolute;left:0;right:0;top:50%;transform:translateY(-35%);text-align:center;font-size:1.7em;line-height:1}
+.card .rk{position:absolute;left:.3em;top:.15em;font-size:1.05em;line-height:1}
+.card .su{position:absolute;left:0;right:0;top:50%;transform:translateY(-30%);text-align:center;font-size:2em;line-height:1}
+.card .su2{position:absolute;right:.3em;bottom:.15em;font-size:.9em;line-height:1;transform:rotate(180deg)}
 .card.joker{background:linear-gradient(160deg,#fff,#ffe9f5);color:#7b1fa2}
-.card.joker .su{font-size:1em;writing-mode:vertical-rl;letter-spacing:2px;top:50%;transform:translateY(-50%);left:50%;right:auto;margin-left:-.6em}
-.card .as{position:absolute;right:3px;bottom:2px;font-size:.7em;background:#7b1fa2;color:#fff;border-radius:4px;padding:0 3px}
+.card.joker .su{font-size:.9em;writing-mode:vertical-rl;letter-spacing:2px;top:50%;transform:translateY(-50%);left:50%;right:auto;margin-left:-.6em}
+.card .as{position:absolute;right:.2em;bottom:.15em;font-size:.7em;background:#7b1fa2;color:#fff;border-radius:4px;padding:0 .3em}
+/* 演出バナー */
+#banner{position:fixed;left:0;right:0;top:34%;display:flex;justify-content:center;pointer-events:none;z-index:40}
+.bn{display:none;text-align:center;font-weight:900;padding:14px 40px;border-radius:22px;background:linear-gradient(135deg,#2a2a2a,#000);color:#fff;border:3px solid var(--gold);box-shadow:0 0 40px #000a;animation:pop 1.25s ease both}
+.bn .t{font-size:clamp(40px,10vw,84px);letter-spacing:4px;text-shadow:0 0 18px currentColor}
+.bn .w{font-size:clamp(14px,3vw,22px);opacity:.85;font-weight:700}
+.bn.revolution,.bn.revBack{background:linear-gradient(135deg,#b71c1c,#ff6f00);border-color:#fff;animation:pop 1.4s ease both,shake .5s .1s 2}
+.bn.cut{background:linear-gradient(135deg,#f9a825,#ff8f00);color:#3a2a00}
+.bn.lock{background:linear-gradient(135deg,#1565c0,#4527a0)}
+.bn.jback,.bn.reverse,.bn.skip{background:linear-gradient(135deg,#00897b,#1565c0)}
+.bn.death,.bn.foul{background:linear-gradient(135deg,#4a0072,#000)}
+.bn.win{background:linear-gradient(135deg,#f9a825,#c62828)}
+.bn.out{padding:8px 26px}
+.bn.out .t{font-size:clamp(26px,6vw,44px)}
+@keyframes pop{0%{transform:scale(.3);opacity:0}15%{transform:scale(1.15);opacity:1}25%{transform:scale(1)}85%{opacity:1}100%{transform:scale(1.05);opacity:0}}
+@keyframes shake{0%,100%{translate:0}25%{translate:-10px 4px}75%{translate:10px -4px}}
 .modal{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;z-index:30;padding:16px}
 .modal.on{display:flex}
-.modal .box{background:#17382c;border:1px solid #ffffff30;border-radius:18px;padding:18px;max-width:440px;width:100%;max-height:90vh;overflow:auto}
-.res{display:flex;justify-content:space-between;padding:8px 10px;border-radius:8px;background:#ffffff14;margin:5px 0}
+.modal .box{background:#17382c;border:1px solid #ffffff30;border-radius:18px;padding:18px;max-width:560px;width:100%;max-height:90vh;overflow:auto}
+.res{display:flex;justify-content:space-between;padding:8px 10px;border-radius:8px;background:#ffffff14;margin:5px 0;gap:8px}
 .res.me{outline:2px solid var(--gold)}
 .timer{font-variant-numeric:tabular-nums;color:var(--gold);font-weight:800}
-.hint{text-align:center;font-size:13px;color:var(--gold);min-height:18px}
-ul.rules{padding-left:18px;line-height:1.7;font-size:14px}
-@media (max-width:600px){:root{--cw:42px;--ch:60px;--ov:-24px}.opp{padding:5px}.opp .cnt{font-size:18px}.table{grid-template-columns:1fr 1.6fr 1fr}.field .card{--cw:38px;--ch:54px}}
+ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
+.ex{background:#00000040;border-radius:10px;padding:8px 10px;margin:6px 0;font-size:13px;line-height:1.6}
+.rule-h{margin:14px 0 4px;font-size:15px;color:var(--gold)}
+.note{background:#ffffff14;border-radius:10px;padding:8px 10px;font-size:13px;margin:6px 0}
+@media (max-width:600px){.opp .cnt{font-size:20px}.opp{flex-basis:90px}}
 </style>
 </head>
 <body>
 <div id="toast"></div>
+<div id="banner"><div class="bn" id="bn"></div></div>
 
 <!-- ホーム -->
 <section class="screen" id="home">
   <h1>🃏 大富豪オンライン</h1>
-  <div class="sub-title">AIと対戦 / 友達とオンライン対戦</div>
+  <div class="sub-title">AIと対戦 / 友達とオンライン対戦（3〜10人）</div>
   <div class="panel">
     <h2>プレイヤー名</h2>
     <input id="name" maxlength="12" placeholder="なまえ" style="width:100%">
+    <div class="row" style="margin-top:10px">
+      <label>パスの操作
+        <select id="passMode" onchange="setPassMode(this.value)"><option value="manual">手動（ボタンで押す）</option><option value="auto">自動（出せない時は自動でパス）</option></select>
+      </label>
+    </div>
   </div>
   <div class="panel">
     <h2>AIと対戦（1人で遊ぶ）</h2>
@@ -489,7 +1103,12 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px}
     </div>
     <div style="font-size:12px;opacity:.7;margin-top:8px">空席はホストが開始するとAIが埋めます。クイックマッチはパスワードなしの公開部屋に入ります。</div>
   </div>
-  <div class="row" style="justify-content:center"><button class="sub" onclick="showRules()">ルール</button></div>
+  <div class="panel">
+    <h2>ローカルルール <span style="font-weight:400;font-size:12px;opacity:.7">（作る部屋に適用）</span></h2>
+    <div id="homeRules"></div>
+    <input id="homeNote" maxlength="200" placeholder="自由ルールのメモ（部屋の全員に表示されます）" style="width:100%;margin-top:8px">
+  </div>
+  <div class="row" style="justify-content:center"><button class="sub" onclick="showRules(true)">ルール説明</button></div>
 </section>
 
 <!-- ロビー -->
@@ -510,16 +1129,24 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px}
       <button onclick="act('start')">ゲーム開始（空席はAI）</button>
     </div>
   </div>
+  <div class="panel"><h2>ローカルルール</h2>
+    <div id="lbRules"></div>
+    <div id="lbNoteRow" class="row" style="margin-top:8px"><input id="lbNote" maxlength="200" placeholder="自由ルールのメモ"><button class="sub" onclick="saveLobbyRules()">メモを保存</button></div>
+    <div id="lbNoteView" class="note" style="display:none"></div>
+  </div>
   <div id="lbWait" class="hint" style="display:none">ホストの開始を待っています…</div>
   <div id="lbInfo" class="hint"></div>
-  <div class="row" style="justify-content:center"><button class="sub" onclick="leave()">退出</button></div>
+  <div class="row" style="justify-content:center"><button class="sub" onclick="showRules()">ルール説明</button><button class="sub" onclick="leave()">退出</button></div>
 </section>
 
 <!-- ゲーム -->
 <section class="screen" id="game">
   <div class="top">
-    <div class="chips" id="chips"></div>
-    <div class="row"><span class="timer" id="timer"></span><button class="sub" style="padding:4px 10px" onclick="showRules()">ルール</button><button class="sub" style="padding:4px 10px" onclick="leave(true)">退出</button></div>
+    <div class="chiprow" id="chips"></div>
+    <div class="row"><span class="timer" id="timer"></span>
+      <button class="sub" id="passBtnMode" style="padding:4px 10px" onclick="togglePassMode()"></button>
+      <button class="sub" style="padding:4px 10px" onclick="showRules()">ルール</button>
+      <button class="sub" style="padding:4px 10px" onclick="leave(true)">退出</button></div>
   </div>
   <div class="opps" id="opps"></div>
   <div class="center">
@@ -536,31 +1163,22 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px}
 </section>
 
 <div class="modal" id="resModal"><div class="box" id="resBox"></div></div>
-<div class="modal" id="rulesModal" onclick="this.classList.remove('on')"><div class="box" onclick="event.stopPropagation()">
-  <h2 style="margin-top:0">ルール</h2>
-  <ul class="rules">
-    <li>強さ: 3 &lt; 4 … &lt; K &lt; A &lt; 2 &lt; ジョーカー（ジョーカーは2枚・ワイルド）</li>
-    <li>場と同じ枚数で、より強い札を出す。同じ数字の組（ペア等）と、同じスートの階段（3枚以上連続）が出せます。</li>
-    <li><b>8切り</b>: 8を出すと場が流れ、同じ人がもう一度出す。</li>
-    <li><b>革命</b>: 同じ数字を4枚以上、または階段5枚以上で強さが逆転（もう一度で戻る）。</li>
-    <li><b>縛り</b>: 連続して同じスートが出ると、そのスートしか出せなくなる。</li>
-    <li><b>スペ3返し</b>: ジョーカー単体には♠3単体で勝てる。</li>
-    <li>全員がパスすると場が流れる。早く上がるほど高得点（人数−1点〜0点）。3〜10人で遊べ、足りない席はAIが入ります。</li>
-    <li>2ラウンド目以降は大貧民→大富豪に強い2枚（4人以上なら貧民→富豪に強い1枚も）を渡し、大富豪/富豪は好きな札を返す。</li>
-    <li>オンラインでは1手45秒。時間切れ・切断時はAIが代打します。</li>
-  </ul>
-  <button onclick="document.getElementById('rulesModal').classList.remove('on')">閉じる</button>
-</div></div>
+<div class="modal" id="rulesModal" onclick="this.classList.remove('on')"><div class="box" onclick="event.stopPropagation()" id="rulesBox"></div></div>
 
 <script>
 const $ = (s) => document.querySelector(s);
 const SYM = {S:'♠',H:'♥',D:'♦',C:'♣'};
 const LABEL = {3:'3',4:'4',5:'5',6:'6',7:'7',8:'8',9:'9',10:'10',11:'J',12:'Q',13:'K',14:'A',15:'2',16:'JK'};
 let sess = null, S = null, es = null, sel = new Set(), deadlineAt = 0;
+let RULES = [], UNSUP = [], DEFAULTS = {};
+let homeRules = {}, starFilter = 'all', openG = new Set(['カードの効果']);
+let passMode = 'manual', lastEv = null, autoTok = '', bnQueue = [], bnBusy = false;
 try { sess = JSON.parse(sessionStorage.getItem('dfg') || 'null'); } catch (e) {}
+try { passMode = localStorage.getItem('dfgPass') === 'auto' ? 'auto' : 'manual'; } catch (e) {}
 
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = 'none', 2600); }
 function screen(id) { document.querySelectorAll('.screen').forEach((e) => e.classList.toggle('on', e.id === id)); }
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 async function api(path, body) {
   try {
     const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -569,10 +1187,73 @@ async function api(path, body) {
     return j;
   } catch (e) { toast('通信エラー'); return null; }
 }
-const myName = () => { const n = $('#name').value.trim() || 'ゲスト'; localStorage.setItem('dfgName', n); return n; };
-function enter(j) { sess = { room: j.room, token: j.token }; sessionStorage.setItem('dfg', JSON.stringify(sess)); history.replaceState(null, '', '?room=' + j.room); connect(); }
-async function startAI() { const j = await api('/api/create', { name: myName(), mode: 'ai', level: $('#aiLevel').value, size: +$('#aiSize').value }); if (j) enter(j); }
-async function createOnline(pub) { const j = await api('/api/create', { name: myName(), mode: 'online', pub, size: +$('#olSize').value, password: $('#olPw').value }); if (j) enter(j); }
+const myName = () => { const n = $('#name').value.trim() || 'ゲスト'; try { localStorage.setItem('dfgName', n); } catch (e) {} return n; };
+
+// ---- パス設定 ----
+function setPassMode(m) { passMode = m === 'auto' ? 'auto' : 'manual'; try { localStorage.setItem('dfgPass', passMode); } catch (e) {} $('#passMode').value = passMode; updPassBtn(); if (S && S.game) renderGame(); }
+function togglePassMode() { setPassMode(passMode === 'auto' ? 'manual' : 'auto'); toast(passMode === 'auto' ? 'パス：自動（出せない時は自動でパス）' : 'パス：手動'); }
+function updPassBtn() { const b = $('#passBtnMode'); if (b) b.textContent = 'パス：' + (passMode === 'auto' ? '自動' : '手動'); }
+
+// ---- ルール選択 ----
+const sig = (st) => RULES.map((r) => (st[r.id] ? '1' : '0')).join('');
+function stars(n) { return n > 0 ? '★'.repeat(n) : '☆'; }
+function filterOK(r) {
+  if (starFilter === 'all') return true;
+  if (starFilter === '5') return r.stars >= 5;
+  if (starFilter === '3+') return r.stars >= 3;
+  if (starFilter === '3-') return r.stars <= 3;
+  if (starFilter === '1-2') return r.stars <= 2;
+  return true;
+}
+function buildPicker(box, st, editable, onChange) {
+  box._sig = sig(st) + (editable ? 'e' : 'r') + starFilter;
+  const prevScroll = window.scrollY;
+  const groups = [];
+  RULES.filter(filterOK).forEach((r) => { let g = groups.find((x) => x.name === r.group); if (!g) groups.push(g = { name: r.group, list: [] }); g.list.push(r); });
+  let html = '';
+  if (editable) {
+    html += '<div class="rp-bar"><label>表示 <select class="rp-f"><option value="all">すべて</option><option value="5">★5（定番）のみ</option><option value="3+">★3以上</option><option value="3-">★3まで</option><option value="1-2">★1〜2（珍しい）</option></select></label><button class="sub rp-def">標準に戻す</button><button class="sub rp-off">すべてOFF</button></div>';
+  } else html += '<div class="chiprow">' + (RULES.filter((r) => st[r.id]).map((r) => '<span class="chip">' + esc(r.name) + '</span>').join('') || '<span class="chip">ルールなし</span>') + '</div>';
+  if (editable) {
+    for (const g of groups) {
+      const on = g.list.filter((r) => st[r.id]).length;
+      html += '<details class="rg" data-g="' + esc(g.name) + '"' + (openG.has(g.name) ? ' open' : '') + '><summary><span>' + esc(g.name) + '</span><span class="cnt">ON ' + on + ' / ' + g.list.length + '</span></summary><div class="rl">' +
+        g.list.map((r) => '<label class="' + (st[r.id] ? 'on' : '') + '"><input type="checkbox" data-id="' + r.id + '"' + (st[r.id] ? ' checked' : '') + '><span><span class="nm">' + esc(r.name) + '</span><span class="st">' + stars(r.stars) + '</span><small>' + esc(r.desc) + '</small></span></label>').join('') + '</div></details>';
+    }
+    html += '<div style="font-size:11px;opacity:.65;margin-top:6px">★＝元ページの出現頻度（★5が定番）。未対応: ' + esc(UNSUP.join('、')) + '</div>';
+  }
+  box.innerHTML = html;
+  window.scrollTo(0, prevScroll);
+  if (!editable) return;
+  const f = box.querySelector('.rp-f'); f.value = starFilter;
+  f.onchange = () => { starFilter = f.value; buildPicker(box, st, editable, onChange); };
+  box.querySelector('.rp-def').onclick = () => { RULES.forEach((r) => (st[r.id] = !!DEFAULTS[r.id])); buildPicker(box, st, editable, onChange); onChange(st); };
+  box.querySelector('.rp-off').onclick = () => { RULES.forEach((r) => (st[r.id] = false)); buildPicker(box, st, editable, onChange); onChange(st); };
+  box.querySelectorAll('details.rg').forEach((d) => d.addEventListener('toggle', () => { if (d.open) openG.add(d.dataset.g); else openG.delete(d.dataset.g); }));
+  box.querySelectorAll('input[type=checkbox]').forEach((cb) => (cb.onchange = () => {
+    st[cb.dataset.id] = cb.checked;
+    cb.closest('label').classList.toggle('on', cb.checked);
+    box._sig = sig(st) + 'e' + starFilter;
+    box.querySelectorAll('details.rg').forEach((d) => { const l = RULES.filter((r) => r.group === d.dataset.g && filterOK(r)); d.querySelector('.cnt').textContent = 'ON ' + l.filter((r) => st[r.id]).length + ' / ' + l.length; });
+    onChange(st);
+  }));
+}
+function saveHome() { try { localStorage.setItem('dfgRules', JSON.stringify(homeRules)); localStorage.setItem('dfgNote', $('#homeNote').value); } catch (e) {} }
+function initRules(j) {
+  RULES = j.rules; UNSUP = j.unsupported; DEFAULTS = j.defaults;
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem('dfgRules') || '{}'); } catch (e) {}
+  homeRules = {}; RULES.forEach((r) => (homeRules[r.id] = typeof saved[r.id] === 'boolean' ? saved[r.id] : !!DEFAULTS[r.id]));
+  try { $('#homeNote').value = localStorage.getItem('dfgNote') || ''; } catch (e) {}
+  $('#homeNote').onchange = saveHome;
+  buildPicker($('#homeRules'), homeRules, true, saveHome);
+  if (S) render();
+}
+
+// ---- 作成/参加 ----
+function enter(j) { sess = { room: j.room, token: j.token }; try { sessionStorage.setItem('dfg', JSON.stringify(sess)); } catch (e) {} history.replaceState(null, '', '?room=' + j.room); lastEv = null; connect(); }
+const rulePayload = () => ({ rules: homeRules, note: $('#homeNote').value });
+async function startAI() { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'ai', level: $('#aiLevel').value, size: +$('#aiSize').value }, rulePayload())); if (j) enter(j); }
+async function createOnline(pub) { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'online', pub, size: +$('#olSize').value, password: $('#olPw').value }, rulePayload())); if (j) enter(j); }
 async function quick() { const j = await api('/api/quick', { name: myName() }); if (j) enter(j); }
 async function joinRoom() { const j = await api('/api/join', { name: myName(), room: $('#joinCode').value.trim().toUpperCase(), password: $('#joinPw').value }); if (j) enter(j); }
 function act(type, extra) { if (!sess) return Promise.resolve(null); return api('/api/action', Object.assign({ room: sess.room, token: sess.token, type }, extra || {})); }
@@ -583,7 +1264,7 @@ async function leave(confirmFirst) {
 }
 function reset() {
   if (es) es.close(); es = null; S = null; sess = null; sel.clear();
-  sessionStorage.removeItem('dfg'); history.replaceState(null, '', location.pathname);
+  try { sessionStorage.removeItem('dfg'); } catch (e) {} history.replaceState(null, '', location.pathname);
   $('#resModal').classList.remove('on'); screen('home');
 }
 function copyLink() {
@@ -591,24 +1272,70 @@ function copyLink() {
   (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => toast('コピーしました'), () => prompt('招待リンク', url));
 }
 function setPw() { act('password', { password: $('#lbPw').value }).then((r) => r && toast($('#lbPw').value ? 'パスワードを設定しました' : 'パスワードを解除しました')); }
-function showRules() { $('#rulesModal').classList.add('on'); }
+let rulesTimer = null;
+function saveLobbyRules() { act('rules', { rules: lobbyRules, note: $('#lbNote').value }).then((r) => r && toast('保存しました')); }
+let lobbyRules = {};
+function lobbyChanged(st) { lobbyRules = st; clearTimeout(rulesTimer); rulesTimer = setTimeout(() => act('rules', { rules: st }), 350); }
 
+// ---- ルール説明 ----
+function showRules(fromHome) {
+  const st = fromHome || !S ? homeRules : (S.rules || homeRules);
+  const note = fromHome || !S ? $('#homeNote').value : (S.note || '');
+  const on = RULES.filter((r) => st[r.id]);
+  $('#rulesBox').innerHTML = '<h2 style="margin-top:0">ルール説明</h2>' +
+    '<div class="rule-h">基本</div><ul class="rules"><li>強さ: 3 &lt; 4 &lt; … &lt; 10 &lt; J &lt; Q &lt; K &lt; A &lt; 2 &lt; ジョーカー（ジョーカーは2枚・ワイルドカード）</li>' +
+    '<li>場と<b>同じ枚数</b>で、<b>より強い札</b>を出します。同じ数字の組（ペア・3枚・4枚）や、階段（同じマークの連続）が出せます。</li>' +
+    '<li>出せない・出したくないときは<b>パス</b>。全員がパスすると場が流れ、最後に出した人からまた始まります。</li>' +
+    '<li>手札を早くなくした順に、大富豪 → … → 大貧民。順位に応じて点が入ります。2ラウンド目以降は、大貧民から大富豪へ強い札を渡す「カード交換」があります。</li></ul>' +
+    '<div class="rule-h">8切り</div><div class="ex">8を出すと、その場のカードが流れて<b>同じ人がもう一度</b>出せます。<br>例: 場に「♠9」→ あなたが「♥8」を出す → 場が流れ、あなたが好きな札から始められる。</div>' +
+    '<div class="rule-h">革命</div><div class="ex">同じ数字を<b>4枚以上</b>同時に出す（階段は5枚以上）と、<b>強さが逆転</b>します。3が最強、2が最弱（ジョーカーは最強のまま）。<br>例: 「♠5 ♥5 ♦5 ♣5」を出す → 画面に<b>「革命！」</b>と表示され、以降は小さい数字ほど強くなる。</div>' +
+    '<div class="rule-h">革命返し</div><div class="ex">革命が起きている間にもう一度革命を起こすと、<b>強さが元に戻ります</b>。<br>例: 革命中に「♠9 ♥9 ♦9 ♣9」を出す → <b>「革命返し！」</b>と表示され、通常の強さに戻る。</div>' +
+    '<div class="rule-h">その他の基本</div><ul class="rules"><li><b>縛り</b>: 場と同じマークの札が続けて出されると、以降そのマークしか出せません。</li><li><b>スペ3返し</b>: ジョーカー単体には、♠3単体で勝てます。</li><li>オンラインでは1手45秒。時間切れ・切断時はAIが代打します。</li><li>パスは「手動／自動」を切り替えられます（自動なら出せる札がないとき自動でパス）。</li></ul>' +
+    '<div class="rule-h">この部屋で有効なローカルルール（' + on.length + '個）</div>' +
+    (on.length ? '<div class="rl" style="padding:0">' + on.map((r) => '<label class="on" style="cursor:default"><span><span class="nm">' + esc(r.name) + '</span><span class="st">' + stars(r.stars) + '</span><small>' + esc(r.desc) + '</small></span></label>').join('') + '</div>' : '<div class="note">ローカルルールはありません。</div>') +
+    (note ? '<div class="rule-h">ホストからのメモ</div><div class="note">' + esc(note) + '</div>' : '') +
+    '<div style="margin-top:12px"><button onclick="document.getElementById(\\'rulesModal\\').classList.remove(\\'on\\')">閉じる</button></div>';
+  $('#rulesModal').classList.add('on');
+}
+
+// ---- 接続 ----
 function connect() {
   if (es) es.close();
   es = new EventSource('/api/events?room=' + sess.room + '&token=' + sess.token);
-  es.onmessage = (e) => { S = JSON.parse(e.data); if (S.game && S.game.timeLeft != null) deadlineAt = Date.now() + S.game.timeLeft; else deadlineAt = 0; render(); };
+  es.onmessage = (e) => { S = JSON.parse(e.data); const g = S.game; deadlineAt = g && g.timeLeft != null ? Date.now() + g.timeLeft : 0; handleEvents(); render(); };
   es.onerror = () => { if (es.readyState === 2) { toast('部屋に接続できませんでした'); reset(); } };
 }
+function handleEvents() {
+  const g = S && S.game;
+  if (!g) { lastEv = null; return; }
+  if (lastEv === null) { lastEv = g.evSeq; return; }
+  if (g.evSeq < lastEv) lastEv = 0;
+  for (const e of g.events) if (e.id > lastEv) bnQueue.push(e);
+  lastEv = g.evSeq;
+  if (bnQueue.length > 4) bnQueue = bnQueue.slice(-4);
+  runBanner();
+}
+function runBanner() {
+  if (bnBusy || !bnQueue.length) return;
+  bnBusy = true;
+  const e = bnQueue.shift();
+  const el = $('#bn');
+  el.className = 'bn ' + e.kind;
+  const who = e.seat >= 0 && S && S.seats[e.seat] ? S.seats[e.seat].name : '';
+  el.innerHTML = '<div class="t">' + esc(e.text) + '</div>' + (who ? '<div class="w">' + esc(who) + (e.seat === S.you ? '（あなた）' : '') + '</div>' : '');
+  el.style.display = 'block';
+  el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+  const ms = e.kind === 'out' ? 900 : 1350;
+  setTimeout(() => { el.style.display = 'none'; bnBusy = false; runBanner(); }, ms);
+}
 
+// ---- カード描画 ----
 function cardEl(c, cls) {
   const d = document.createElement('div');
   const joker = c.r === 16;
   d.className = 'card' + (joker ? ' joker' : '') + (c.s === 'H' || c.s === 'D' ? ' red' : '') + (cls ? ' ' + cls : '');
-  if (joker) {
-    d.innerHTML = '<span class="rk">★</span><span class="su">JOKER</span>' + (c.as ? '<span class="as">' + LABEL[c.as] + '</span>' : '');
-  } else {
-    d.innerHTML = '<span class="rk">' + LABEL[c.r] + '</span><span class="su">' + SYM[c.s] + '</span>';
-  }
+  if (joker) d.innerHTML = '<span class="rk">★</span><span class="su">JOKER</span>' + (c.as ? '<span class="as">' + LABEL[c.as] + '</span>' : '');
+  else d.innerHTML = '<span class="rk">' + LABEL[c.r] + '</span><span class="su">' + SYM[c.s] + '</span><span class="su2">' + SYM[c.s] + '</span>';
   return d;
 }
 const key = (ids) => ids.slice().sort((a, b) => a - b).join(',');
@@ -624,51 +1351,74 @@ function renderLobby() {
   const host = S.you === S.host;
   $('#lbHostPanel').style.display = host ? '' : 'none';
   $('#lbWait').style.display = host ? 'none' : '';
+  $('#lbNoteRow').style.display = host ? '' : 'none';
   $('#lbLevel').value = S.level;
-  $('#lbSize').value = S.size;
-  const pw = $('#lbPw');
-  if (document.activeElement !== pw) pw.value = S.password || '';
+  const sz = $('#lbSize');
+  if (!sz.options.length) for (let k = 3; k <= 10; k++) sz.add(new Option(k + '人', k));
+  sz.value = S.size;
+  const pw = $('#lbPw'); if (document.activeElement !== pw) pw.value = S.password || '';
+  const nt = $('#lbNote'); if (document.activeElement !== nt) nt.value = S.note || '';
+  const nv = $('#lbNoteView'); nv.style.display = !host && S.note ? '' : 'none'; nv.textContent = '📝 ' + (S.note || '');
+  const box = $('#lbRules');
+  if (RULES.length && S.rules) {
+    const want = sig(S.rules) + (host ? 'e' : 'r') + starFilter;
+    if (box._sig !== want) { lobbyRules = Object.assign({}, S.rules); buildPicker(box, lobbyRules, host, lobbyChanged); }
+  }
   const humansN = S.seats.filter((x) => x.type === 'human').length;
   $('#lbInfo').textContent = S.size + '人で開始（参加' + humansN + '人 + AI' + (S.size - humansN) + '人）' + (S.locked ? ' 🔒パスワードあり' : '');
 }
-function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function fitHand(hand) {
+  const cards = hand.children;
+  const n = cards.length;
+  if (n < 2) return;
+  const cw = cards[0].getBoundingClientRect().width;
+  const avail = hand.clientWidth - 8;
+  let gap = 6;
+  if (n * cw + (n - 1) * gap > avail) gap = (avail - cw) / (n - 1) - cw;
+  gap = Math.max(gap, -cw * 0.78);
+  for (let i = 1; i < n; i++) cards[i].style.marginLeft = gap + 'px';
+}
 
 function renderGame() {
   const g = S.game, you = S.you, n = S.seats.length;
   const legalKeys = new Set((g.legal || []).map(key));
   const legalIds = new Set((g.legal || []).flat());
   const myTurn = g.phase === 'play' && g.turn === you;
+  updPassBtn();
   // チップ
-  const chips = ['<span class="chip">ROUND ' + S.round + '</span>'];
-  if (g.rev) chips.push('<span class="chip hot">革命中</span>');
-  if (g.lock) chips.push('<span class="chip hot">縛り ' + g.lock.map((s) => SYM[s]).join('') + '</span>');
+  const chips = ['<span class="chip">ROUND ' + S.round + '</span>', '<span class="chip">' + (g.dir === 1 ? '順回り ↻' : '逆回り ↺') + '</span>'];
+  if (g.effRev) chips.push('<span class="chip red">強さ逆転中</span>');
+  if (g.rev) chips.push('<span class="chip hot">革命</span>');
+  if (g.jb) chips.push('<span class="chip hot">バック</span>');
+  if (g.lock) chips.push('<span class="chip hot">縛り ' + g.lock.map((s) => SYM[s]).join('') + (g.lockSeq ? ' 続き番号' : '') + '</span>');
+  if (g.arthur) chips.push('<span class="chip hot">ジョーカー弱体</span>');
+  if (g.omen) chips.push('<span class="chip hot">オーメン</span>');
+  if (g.cut8) chips.push('<span class="chip red">切り対抗待ち</span>');
+  if (g.mustD3) chips.push('<span class="chip hot">♦3から</span>');
   $('#chips').innerHTML = chips.join('');
-  // 相手
-  const place = (seat) => { const p = g.places.indexOf(seat); return p >= 0 ? S.titles[p] || '' : (g.phase === 'end' ? '' : ''); };
-  const oppEl = $('#opps');
-  oppEl.innerHTML = '';
-  for (let rel = 1; rel < n; rel++) {
-    const i = (you + rel) % n, st = S.seats[i];
+  // 相手（席順に並べる）
+  const oppEl = $('#opps'); oppEl.innerHTML = '';
+  const ord = g.order, my = ord.indexOf(you);
+  for (let k = 1; k < n; k++) {
+    const i = ord[(my + k) % n], st = S.seats[i];
     const el = document.createElement('div');
     el.className = 'opp' + (g.phase === 'play' && g.turn === i ? ' turn' : '');
-    const cnt = g.counts[i];
     el.innerHTML = (g.passed[i] ? '<span class="pass">パス</span>' : '') +
       '<div class="nm ' + (st.online ? '' : 'off') + '">' + esc(st.name) + '</div>' +
-      '<div class="ttl">' + (g.places.includes(i) ? '🏁' + (g.places.indexOf(i) + 1) + '位' : '&nbsp;') + '</div>' +
-      '<div class="cnt">' + cnt + '<span style="font-size:11px;font-weight:400">枚</span></div>' +
-      '<div style="font-size:11px;opacity:.7">' + st.score + '点</div>';
+      '<div class="ttl">' + (g.places.includes(i) ? '🏁' + (g.places.indexOf(i) + 1) + '位' : '') + '</div>' +
+      '<div class="cnt">' + g.counts[i] + '<small>枚</small></div><div class="pt">' + st.score + '点</div>';
     oppEl.appendChild(el);
   }
   // 場
   const f = $('#field'); f.innerHTML = '';
   if (g.field) { g.field.cards.forEach((c) => f.appendChild(cardEl(c))); $('#fieldWho').textContent = S.seats[g.field.player].name + ' の手'; }
   else $('#fieldWho').textContent = g.phase === 'play' ? '場は空です（好きな札から）' : '';
-  $('#log').innerHTML = g.log.slice(-5).map((l) => '<div>' + (l.s >= 0 ? esc(S.seats[l.s].name) + ': ' : '') + esc(l.t) + '</div>').join('');
+  $('#log').innerHTML = g.log.slice(-4).map((l) => '<div>' + (l.s >= 0 ? esc(S.seats[l.s].name) + ': ' : '') + esc(l.t) + '</div>').join('');
   // 自分
-  const meTurn = (myTurn || (g.phase === 'exchange' && g.exchange.youNeed > 0));
+  const meTurn = myTurn || (g.phase === 'exchange' && g.exchange.youNeed > 0);
   $('#meinfo').className = 'meinfo' + (meTurn ? ' turn' : '');
   $('#meinfo').innerHTML = '<span class="nm">' + esc(S.seats[you].name) + (g.places.includes(you) ? '　🏁' + (g.places.indexOf(you) + 1) + '位で上がり' : '') + '</span><span>' + S.seats[you].score + '点</span>';
-  // 手札
   const hand = $('#hand'); hand.innerHTML = '';
   const ids = new Set(g.hand.map((c) => c.id));
   for (const id of [...sel]) if (!ids.has(id)) sel.delete(id);
@@ -678,18 +1428,19 @@ function renderGame() {
     if (sel.has(c.id)) cls += ' sel';
     if (myTurn && !legalIds.has(c.id)) cls += ' dim';
     const el = cardEl(c, cls.trim());
-    if (recv.has(c.id)) el.style.outline = '2px dashed #6cf';
+    if (recv.has(c.id)) el.style.outline = '3px dashed #6cf';
     el.onclick = () => { if (sel.has(c.id)) sel.delete(c.id); else sel.add(c.id); renderGame(); };
     hand.appendChild(el);
   });
-  // ボタン・ヒント
+  fitHand(hand);
+  // ボタン
   const btns = $('#btns'); btns.innerHTML = '';
   const hint = $('#hint');
   const selIds = [...sel];
   if (g.phase === 'exchange') {
     const need = g.exchange.youNeed;
     if (need > 0) {
-      hint.textContent = '交換: 相手に渡すカードを ' + need + ' 枚選んでください（点線は受け取った札）';
+      hint.textContent = 'カード交換: 相手に渡す札を ' + need + ' 枚選んでください（点線は受け取った札）';
       btns.innerHTML = '<button id="giveBtn" ' + (selIds.length === need ? '' : 'disabled') + '>渡す</button>';
       $('#giveBtn').onclick = async () => { const r = await act('give', { ids: selIds }); if (r) sel.clear(); };
     } else hint.textContent = 'カード交換中…';
@@ -697,13 +1448,20 @@ function renderGame() {
     if (myTurn) {
       const canPlay = legalKeys.has(key(selIds));
       const noMove = g.legal.length === 0;
-      hint.textContent = noMove ? '出せるカードがありません。パスしてください' : (g.field ? '場より強い札を選んで「出す」' : 'あなたが先攻です。好きな札を選んで「出す」');
-      btns.innerHTML = '<button id="playBtn" ' + (canPlay ? '' : 'disabled') + '>出す</button>' +
+      hint.textContent = noMove ? (passMode === 'auto' ? '出せる札がないので自動でパスします…' : '出せる札がありません。パスしてください') : (g.field ? '場より強い札を選んで「出す」' : 'あなたが先攻です。好きな札を選んで「出す」');
+      const rc = S.rules && S.rules.revChoice ? '<label><input type="checkbox" id="noRev"> 革命しない</label>' : '';
+      btns.innerHTML = rc + '<button id="playBtn" ' + (canPlay ? '' : 'disabled') + '>出す</button>' +
         '<button id="passBtn" class="sub" ' + (g.field ? '' : 'disabled') + '>パス</button>' +
         '<button id="clrBtn" class="sub" ' + (selIds.length ? '' : 'disabled') + '>選択解除</button>';
-      $('#playBtn').onclick = async () => { const r = await act('play', { ids: selIds }); if (r) sel.clear(); };
+      $('#playBtn').onclick = async () => { const nr = $('#noRev'); const r = await act('play', { ids: selIds, noRev: !!(nr && nr.checked) }); if (r) sel.clear(); };
       $('#passBtn').onclick = () => act('pass');
       $('#clrBtn').onclick = () => { sel.clear(); renderGame(); };
+      // 自動パス
+      const tok = S.round + ':' + g.turn + ':' + g.log.length + ':' + g.counts.join(',');
+      if (passMode === 'auto' && noMove && g.field && autoTok !== tok) {
+        autoTok = tok;
+        setTimeout(() => { if (S && S.game && S.game.turn === you && S.game.phase === 'play' && passMode === 'auto' && S.game.log.length === g.log.length) act('pass'); }, 900);
+      }
     } else if (g.places.includes(you)) hint.textContent = '上がりました！ 他のプレイヤーを待っています';
     else hint.textContent = S.seats[g.turn].name + ' の番です';
   } else hint.textContent = '';
@@ -718,6 +1476,7 @@ function renderGame() {
     modal.classList.add('on');
   } else modal.classList.remove('on');
 }
+window.addEventListener('resize', () => { if (S && S.game && S.phase !== 'lobby') fitHand($('#hand')); });
 setInterval(() => {
   const t = $('#timer');
   if (!t) return;
@@ -727,13 +1486,11 @@ setInterval(() => {
 
 // 起動
 (function init() {
-  for (const [id, def] of [['aiSize', 4], ['olSize', 4], ['lbSize', 4]]) {
-    const el = document.getElementById(id);
-    for (let k = 3; k <= 10; k++) el.add(new Option(k + '人', k));
-    el.value = def;
-  }
-  $('#name').value = localStorage.getItem('dfgName') || '';
+  try { $('#name').value = localStorage.getItem('dfgName') || ''; } catch (e) {}
+  for (const id of ['aiSize', 'olSize']) { const el = document.getElementById(id); for (let k = 3; k <= 10; k++) el.add(new Option(k + '人', k)); el.value = 4; }
+  $('#passMode').value = passMode;
   const q = new URLSearchParams(location.search).get('room');
+  fetch('/api/rules').then((r) => r.json()).then(initRules).catch(() => toast('ルール一覧を読み込めませんでした'));
   if (sess && (!q || q.toUpperCase() === sess.room)) { screen('home'); connect(); return; }
   if (q) $('#joinCode').value = q.toUpperCase();
   screen('home');
@@ -786,11 +1543,12 @@ function newCode() {
 const cleanName = (n) => String(n || '').replace(/[<>\n\r]/g, '').trim().slice(0, 12) || 'ゲスト';
 const emptySeat = () => ({ type: 'empty', name: '', token: null, conn: 0, lastSeen: 0 });
 
-function createRoom(name, pub, level, size, password) {
+const cleanNote = (t) => String(t || '').replace(/[<>]/g, '').slice(0, 200);
+function createRoom(name, pub, level, size, password, rules, note) {
   size = clampSize(size);
   const code = newCode();
   const room = {
-    code, pub: !!pub, password: cleanPw(password), phase: 'lobby', host: 0, level: LEVELS.includes(level) ? level : 'normal',
+    code, pub: !!pub, password: cleanPw(password), rules: G.normRules(rules), note: cleanNote(note), maintained: false, phase: 'lobby', host: 0, level: LEVELS.includes(level) ? level : 'normal',
     seats: Array.from({ length: size }, emptySeat), scores: Array(size).fill(0), round: 0,
     g: null, clients: new Set(), timer: null, deadline: null, lastResults: null, scored: false,
     updated: Date.now(),
@@ -827,7 +1585,7 @@ function fillAI(room) {
 function view(room, seat) {
   const g = room.g;
   const v = {
-    room: room.code, phase: room.phase, you: seat, host: room.host, level: room.level, round: room.round, pub: room.pub, locked: !!room.password, size: room.seats.length,
+    room: room.code, phase: room.phase, you: seat, host: room.host, level: room.level, round: room.round, pub: room.pub, locked: !!room.password, size: room.seats.length, rules: room.rules, note: room.note,
     password: seat === room.host ? room.password : undefined,
     seats: room.seats.map((s, i) => ({ type: s.type, name: s.name, online: s.type === 'ai' || s.conn > 0, score: room.scores[i] })),
     titles: titlesFor(room.seats.length),
@@ -837,6 +1595,8 @@ function view(room, seat) {
       phase: g.phase, turn: g.turn, rev: g.rev, lock: g.lock, counts: g.hands.map((h) => h.length),
       passed: g.passedFlags, places: g.places, leader: g.leaderSeat, lastPlayer: g.lastPlayer,
       field: g.field ? { player: g.field.player, cards: g.field.it.view } : null,
+      order: g.order, dir: g.dir, effRev: G.effRev(g), jb: g.jb, arthur: g.arthur, omen: g.omen, noRev: g.noRev, lockAny: g.lockAny, lockSeq: g.lockSeq, mustD3: g.mustD3,
+      events: g.events.slice(-6), evSeq: g.evSeq, cut8: !!(g.field && g.field.cut8),
       hand: G.sortHand(g.hands[seat]).map((c) => G.cardView(c)),
       log: g.log.slice(-10),
     };
@@ -866,17 +1626,19 @@ function broadcast(room) {
 
 // ---- 進行 ---------------------------------------------------------------
 function startRound(room, prev) {
-  room.g = G.newRound(prev, room.seats.length);
+  room.g = G.newRound(prev, room.seats.length, room.rules, { maintained: room.maintained });
   room.round++;
   room.scored = false;
   room.lastResults = null;
   room.phase = 'game';
+  if (room.g.phase === 'end') { finishIfEnd(room); broadcast(room); return; }
   schedule(room);
 }
 function finishIfEnd(room) {
   const g = room.g;
   if (g.phase === 'end' && !room.scored) {
     room.scored = true;
+    room.maintained = !!g.maintained;
     const n = room.seats.length;
     const titles = titlesFor(n);
     room.lastResults = g.places.map((seat, p) => {
@@ -939,6 +1701,7 @@ function botMove(room, seat) {
 
 function startGame(room) {
   fillAI(room);
+  room.maintained = false;
   room.scores = Array(room.seats.length).fill(0);
   room.round = 0;
   startRound(room, null);
@@ -989,6 +1752,9 @@ function json(res, code, obj) {
 }
 async function handleApi(req, res, url) {
   const p = url.pathname;
+  if (req.method === 'GET' && p === '/api/rules') {
+    return json(res, 200, { rules: G.RULES, unsupported: G.UNSUPPORTED, defaults: G.DEFAULT_RULES });
+  }
   if (req.method === 'GET' && p === '/api/rooms') {
     const list = [...rooms.values()]
       .filter((r) => r.pub && r.phase === 'lobby' && r.seats.some((s) => s.type === 'empty'))
@@ -1027,7 +1793,7 @@ async function handleApi(req, res, url) {
 
   if (p === '/api/create') {
     const online = body.mode === 'online';
-    const { room, token } = createRoom(body.name, online && body.pub, body.level, body.size, online ? body.password : '');
+    const { room, token } = createRoom(body.name, online && body.pub, body.level, body.size, online ? body.password : '', body.rules, body.note);
     if (body.mode === 'ai') startGame(room);
     return json(res, 200, { room: room.code, token, seat: 0 });
   }
@@ -1066,6 +1832,12 @@ async function handleApi(req, res, url) {
         if (LEVELS.includes(body.level)) room.level = body.level;
         broadcast(room);
         return json(res, 200, { ok: true });
+      case 'rules':
+        if (seat !== room.host || room.phase !== 'lobby') return json(res, 403, { error: 'ホストのみ・ロビーでのみ変更できます' });
+        room.rules = G.normRules(body.rules);
+        if (body.note !== undefined) room.note = cleanNote(body.note);
+        broadcast(room);
+        return json(res, 200, { ok: true });
       case 'password':
         if (seat !== room.host || room.phase !== 'lobby') return json(res, 403, { error: 'ホストのみ変更できます' });
         room.password = cleanPw(body.password);
@@ -1091,7 +1863,7 @@ async function handleApi(req, res, url) {
       case 'play': case 'pass': case 'give': {
         if (room.phase !== 'game' || !g) return json(res, 400, { error: 'ゲーム中ではありません' });
         let r;
-        if (body.type === 'play') r = G.doPlay(g, seat, body.ids);
+        if (body.type === 'play') r = G.doPlay(g, seat, body.ids, { noRev: !!body.noRev });
         else if (body.type === 'pass') r = G.doPass(g, seat);
         else r = G.giveBack(g, seat, body.ids);
         if (!r.ok) return json(res, 400, { error: r.error });
