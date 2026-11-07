@@ -1019,8 +1019,10 @@ details.rg>summary .cnt{font-weight:400;opacity:.7;font-size:12px}
 .me{padding:6px 8px calc(8px + env(safe-area-inset-bottom));background:#0006}
 .meinfo{display:flex;justify-content:space-between;align-items:center;font-size:14px;margin-bottom:2px;gap:6px}
 .meinfo.turn .nm{color:var(--gold);font-weight:800}
-.hand{display:flex;justify-content:center;padding-top:22px;min-height:calc(var(--ch) + 30px);overflow-x:auto;overflow-y:visible}
+.hand{display:flex;justify-content:flex-start;padding-top:22px;min-height:calc(var(--ch) + 30px);overflow-x:auto;overflow-y:visible}
 .hand .card{cursor:pointer;transition:transform .12s}
+.hand .card:first-child{margin-left:auto}
+.hand .card:last-child{margin-right:auto}
 .hand .card.sel{transform:translateY(-20px);box-shadow:0 0 0 3px var(--gold),0 8px 14px #0009}
 .hand .card.dim{filter:brightness(.55)}
 .btns{display:flex;gap:10px;justify-content:center;margin-top:8px;flex-wrap:wrap;align-items:center}
@@ -1060,6 +1062,23 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
 .ex{background:#00000040;border-radius:10px;padding:8px 10px;margin:6px 0;font-size:13px;line-height:1.6}
 .rule-h{margin:14px 0 4px;font-size:15px;color:var(--gold)}
 .note{background:#ffffff14;border-radius:10px;padding:8px 10px;font-size:13px;margin:6px 0}
+.chat{display:flex;flex-direction:column;gap:8px}
+.chatlog{background:#00000040;border-radius:12px;padding:8px;height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.cm{max-width:86%;align-self:flex-start;background:#ffffff1a;border-radius:12px;padding:6px 10px;line-height:1.45;word-break:break-word}
+.cm .cn{display:block;font-size:11px;opacity:.7}
+.cm.me{align-self:flex-end;background:#f4c54233;outline:1px solid #f4c54266}
+.cm.sys{align-self:center;background:none;font-size:12px;opacity:.6;padding:0}
+.chatempty{opacity:.5;text-align:center;margin:auto;font-size:13px}
+.stamps{display:flex;gap:6px;flex-wrap:wrap}
+.stamps button{padding:6px 10px;font-size:13px}
+.drawer{position:fixed;left:0;right:0;top:0;z-index:35;background:#0e2a20;border-bottom:2px solid var(--gold);padding:10px 12px;display:none;box-shadow:0 8px 30px #000a}
+.drawer.on{display:block}
+.drawer .chatlog{height:min(34dvh,300px)}
+.drawer .dh{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.drawer .dh button{padding:6px 12px}
+#chatPop{position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:33;background:#000d;border:1px solid var(--gold);border-radius:14px;padding:8px 14px;max-width:88%;font-size:14px;display:none;pointer-events:none}
+#chatPop b{color:var(--gold);margin-right:6px}
+.badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:99px;background:#e53935;color:#fff;font-size:11px;line-height:18px;margin-left:4px}
 @media (max-width:600px){.opp .cnt{font-size:20px}.opp{flex-basis:90px}}
 </style>
 </head>
@@ -1134,6 +1153,13 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
     <div id="lbNoteRow" class="row" style="margin-top:8px"><input id="lbNote" maxlength="200" placeholder="自由ルールのメモ"><button class="sub" onclick="saveLobbyRules()">メモを保存</button></div>
     <div id="lbNoteView" class="note" style="display:none"></div>
   </div>
+  <div class="panel"><h2>💬 チャット</h2>
+    <div class="chat">
+      <div class="chatlog"></div>
+      <div class="stamps"></div>
+      <div class="row"><input id="lcIn" maxlength="200" placeholder="メッセージを入力（Enterで送信）" autocomplete="off"><button onclick="sendChat('lcIn')">送信</button></div>
+    </div>
+  </div>
   <div id="lbWait" class="hint" style="display:none">ホストの開始を待っています…</div>
   <div id="lbInfo" class="hint"></div>
   <div class="row" style="justify-content:center"><button class="sub" onclick="showRules()">ルール説明</button><button class="sub" onclick="leave()">退出</button></div>
@@ -1144,6 +1170,7 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
   <div class="top">
     <div class="chiprow" id="chips"></div>
     <div class="row"><span class="timer" id="timer"></span>
+      <button class="sub" id="chatBtn" style="padding:4px 10px;display:none" onclick="toggleChat()">💬<span class="badge" id="chatBadge" style="display:none"></span></button>
       <button class="sub" id="passBtnMode" style="padding:4px 10px" onclick="togglePassMode()"></button>
       <button class="sub" style="padding:4px 10px" onclick="showRules()">ルール</button>
       <button class="sub" style="padding:4px 10px" onclick="leave(true)">退出</button></div>
@@ -1162,6 +1189,15 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
   </div>
 </section>
 
+<div id="chatPop"></div>
+<div class="drawer" id="chatDrawer">
+  <div class="dh"><b>💬 チャット</b><button class="sub" onclick="toggleChat(false)">閉じる</button></div>
+  <div class="chat">
+    <div class="chatlog"></div>
+    <div class="stamps"></div>
+    <div class="row"><input id="gcIn" maxlength="200" placeholder="メッセージ（Enterで送信）" autocomplete="off"><button onclick="sendChat('gcIn')">送信</button></div>
+  </div>
+</div>
 <div class="modal" id="resModal"><div class="box" id="resBox"></div></div>
 <div class="modal" id="rulesModal" onclick="this.classList.remove('on')"><div class="box" onclick="event.stopPropagation()" id="rulesBox"></div></div>
 
@@ -1250,7 +1286,7 @@ function initRules(j) {
 }
 
 // ---- 作成/参加 ----
-function enter(j) { sess = { room: j.room, token: j.token }; try { sessionStorage.setItem('dfg', JSON.stringify(sess)); } catch (e) {} history.replaceState(null, '', '?room=' + j.room); lastEv = null; connect(); }
+function enter(j) { sess = { room: j.room, token: j.token }; try { sessionStorage.setItem('dfg', JSON.stringify(sess)); } catch (e) {} history.replaceState(null, '', '?room=' + j.room); lastEv = null; resetChat(); connect(); }
 const rulePayload = () => ({ rules: homeRules, note: $('#homeNote').value });
 async function startAI() { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'ai', level: $('#aiLevel').value, size: +$('#aiSize').value }, rulePayload())); if (j) enter(j); }
 async function createOnline(pub) { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'online', pub, size: +$('#olSize').value, password: $('#olPw').value }, rulePayload())); if (j) enter(j); }
@@ -1265,7 +1301,7 @@ async function leave(confirmFirst) {
 function reset() {
   if (es) es.close(); es = null; S = null; sess = null; sel.clear();
   try { sessionStorage.removeItem('dfg'); } catch (e) {} history.replaceState(null, '', location.pathname);
-  $('#resModal').classList.remove('on'); screen('home');
+  $('#resModal').classList.remove('on'); resetChat(); screen('home');
 }
 function copyLink() {
   const url = location.origin + '/?room=' + S.room;
@@ -1298,11 +1334,77 @@ function showRules(fromHome) {
   $('#rulesModal').classList.add('on');
 }
 
+// ---- チャット ----
+const STAMPS = ['よろしく！', 'ナイス！', 'まって〜', 'ありがとう', 'GG', 'もう一回！'];
+let chatLog = [], chatLast = 0, chatUnread = 0, chatOpen = false, popTimer = null;
+function resetChat() { chatLog = []; chatLast = 0; chatUnread = 0; chatOpen = false; const d = $('#chatDrawer'); if (d) d.classList.remove('on'); renderChat(); updateChatUI(); }
+function onChat(m) {
+  if (!m || m.id <= chatLast) return;
+  chatLast = m.id;
+  chatLog.push(m);
+  if (chatLog.length > 120) chatLog.shift();
+  const inLobby = S && S.phase === 'lobby';
+  const mine = S && m.seat === S.you && !m.sys;
+  if (!inLobby && !chatOpen && !mine && !m.sys) { chatUnread++; popChat(m); }
+  renderChat();
+  updateChatUI();
+}
+function popChat(m) {
+  const el = $('#chatPop');
+  el.innerHTML = '<b>' + esc(m.name) + '</b>' + esc(m.text);
+  el.style.display = 'block';
+  clearTimeout(popTimer);
+  popTimer = setTimeout(() => (el.style.display = 'none'), 5000);
+}
+function renderChat() {
+  const me = S ? S.you : -1;
+  const html = chatLog.length ? chatLog.map((m) => m.sys
+    ? '<div class="cm sys">' + esc(m.text) + '</div>'
+    : '<div class="cm' + (m.seat === me ? ' me' : '') + '"><span class="cn">' + esc(m.name) + '</span>' + esc(m.text) + '</div>').join('')
+    : '<div class="chatempty">まだメッセージはありません</div>';
+  document.querySelectorAll('.chatlog').forEach((box) => {
+    const near = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+    box.innerHTML = html;
+    if (near || !box._init) { box.scrollTop = box.scrollHeight; box._init = true; }
+  });
+}
+function updateChatUI() {
+  const humans = S ? S.seats.filter((x) => x.type === 'human').length : 0;
+  const btn = $('#chatBtn');
+  if (btn) btn.style.display = humans >= 2 ? '' : 'none';
+  const b = $('#chatBadge');
+  if (b) { b.style.display = chatUnread ? 'inline-block' : 'none'; b.textContent = chatUnread; }
+  if (humans < 2 && chatOpen) toggleChat(false);
+}
+function toggleChat(open) {
+  chatOpen = open == null ? !chatOpen : open;
+  $('#chatDrawer').classList.toggle('on', chatOpen);
+  if (chatOpen) { chatUnread = 0; $('#chatPop').style.display = 'none'; document.querySelectorAll('.chatlog').forEach((b) => (b.scrollTop = b.scrollHeight)); }
+  updateChatUI();
+}
+function sendChat(inputId, text) {
+  const inp = document.getElementById(inputId);
+  const t = (text != null ? text : inp.value).trim();
+  if (!t) return;
+  if (text == null) inp.value = '';
+  act('chat', { text: t }).then((r) => { if (!r && text == null) inp.value = t; });
+}
+function initChat() {
+  document.querySelectorAll('.stamps').forEach((box) => {
+    box.innerHTML = STAMPS.map((t) => '<button class="sub" type="button">' + esc(t) + '</button>').join('');
+    box.querySelectorAll('button').forEach((b, i) => (b.onclick = () => sendChat(null, STAMPS[i])));
+  });
+  for (const id of ['lcIn', 'gcIn']) {
+    document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); sendChat(id); } });
+  }
+}
+
 // ---- 接続 ----
 function connect() {
   if (es) es.close();
   es = new EventSource('/api/events?room=' + sess.room + '&token=' + sess.token);
-  es.onmessage = (e) => { S = JSON.parse(e.data); const g = S.game; deadlineAt = g && g.timeLeft != null ? Date.now() + g.timeLeft : 0; handleEvents(); render(); };
+  es.addEventListener('chat', (e) => { try { onChat(JSON.parse(e.data)); } catch (err) {} });
+  es.onmessage = (e) => { S = JSON.parse(e.data); const g = S.game; deadlineAt = g && g.timeLeft != null ? Date.now() + g.timeLeft : 0; handleEvents(); render(); updateChatUI(); };
   es.onerror = () => { if (es.readyState === 2) { toast('部屋に接続できませんでした'); reset(); } };
 }
 function handleEvents() {
@@ -1343,7 +1445,7 @@ const key = (ids) => ids.slice().sort((a, b) => a - b).join(',');
 function render() {
   if (!S) return;
   if (S.phase === 'lobby') { $('#resModal').classList.remove('on'); renderLobby(); screen('lobby'); }
-  else { renderGame(); screen('game'); }
+  else { screen('game'); renderGame(); }
 }
 function renderLobby() {
   $('#lbCode').textContent = S.room;
@@ -1373,6 +1475,7 @@ function fitHand(hand) {
   const n = cards.length;
   if (n < 2) return;
   const cw = cards[0].getBoundingClientRect().width;
+  if (!cw) return;
   const avail = hand.clientWidth - 8;
   let gap = 6;
   if (n * cw + (n - 1) * gap > avail) gap = (avail - cw) / (n - 1) - cw;
@@ -1489,6 +1592,7 @@ setInterval(() => {
   try { $('#name').value = localStorage.getItem('dfgName') || ''; } catch (e) {}
   for (const id of ['aiSize', 'olSize']) { const el = document.getElementById(id); for (let k = 3; k <= 10; k++) el.add(new Option(k + '人', k)); el.value = 4; }
   $('#passMode').value = passMode;
+  initChat();
   const q = new URLSearchParams(location.search).get('room');
   fetch('/api/rules').then((r) => r.json()).then(initRules).catch(() => toast('ルール一覧を読み込めませんでした'));
   if (sess && (!q || q.toUpperCase() === sess.room)) { screen('home'); connect(); return; }
@@ -1550,7 +1654,7 @@ function createRoom(name, pub, level, size, password, rules, note) {
   const room = {
     code, pub: !!pub, password: cleanPw(password), rules: G.normRules(rules), note: cleanNote(note), maintained: false, phase: 'lobby', host: 0, level: LEVELS.includes(level) ? level : 'normal',
     seats: Array.from({ length: size }, emptySeat), scores: Array(size).fill(0), round: 0,
-    g: null, clients: new Set(), timer: null, deadline: null, lastResults: null, scored: false,
+    chat: [], chatSeq: 0, g: null, clients: new Set(), timer: null, deadline: null, lastResults: null, scored: false,
     updated: Date.now(),
   };
   rooms.set(code, room);
@@ -1616,6 +1720,22 @@ function view(room, seat) {
   }
   return v;
 }
+// ---- チャット ----
+const CHAT_MAX = 200;
+function chatWrite(client, m) {
+  try { client.res.write('event: chat\ndata: ' + JSON.stringify(m) + '\n\n'); } catch (e) { /* closed */ }
+}
+function addChat(room, seat, text, sys) {
+  const m = { id: ++room.chatSeq, seat: sys ? -1 : seat, name: sys ? '' : room.seats[seat].name, text, sys: !!sys, t: Date.now() };
+  room.chat.push(m);
+  if (room.chat.length > 100) room.chat.shift();
+  room.updated = Date.now();
+  for (const c of room.clients) chatWrite(c, m);
+}
+function cleanChat(t) {
+  return String(t == null ? '' : t).replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX);
+}
+
 function send(client, room) {
   try { client.res.write('data: ' + JSON.stringify(view(room, client.seat)) + '\n\n'); } catch (e) { /* closed */ }
 }
@@ -1721,6 +1841,7 @@ function toLobby(room) {
 }
 function leaveSeat(room, seat) {
   const s = room.seats[seat];
+  if (s.type === 'human') addChat(room, -1, s.name + ' が退出しました', true);
   for (const c of [...room.clients]) if (c.seat === seat) { try { c.res.end(); } catch (e) { /* ignore */ } room.clients.delete(c); }
   if (room.phase === 'lobby') {
     room.seats[seat] = emptySeat();
@@ -1777,6 +1898,7 @@ async function handleApi(req, res, url) {
     s.conn++;
     s.lastSeen = Date.now();
     send(client, room);
+    for (const m of room.chat.slice(-50)) chatWrite(client, m);
     broadcast(room);
     req.on('close', () => {
       room.clients.delete(client);
@@ -1805,6 +1927,7 @@ async function handleApi(req, res, url) {
     const i = room.seats.findIndex((s) => s.type === 'empty');
     if (i < 0) return json(res, 400, { error: '満席です' });
     const token = seatHuman(room, i, body.name);
+    addChat(room, -1, room.seats[i].name + ' が参加しました', true);
     broadcast(room);
     return json(res, 200, { room: room.code, token, seat: i });
   }
@@ -1813,6 +1936,7 @@ async function handleApi(req, res, url) {
     if (room) {
       const i = room.seats.findIndex((s) => s.type === 'empty');
       const token = seatHuman(room, i, body.name);
+      addChat(room, -1, room.seats[i].name + ' が参加しました', true);
       broadcast(room);
       return json(res, 200, { room: room.code, token, seat: i });
     }
@@ -1838,6 +1962,17 @@ async function handleApi(req, res, url) {
         if (body.note !== undefined) room.note = cleanNote(body.note);
         broadcast(room);
         return json(res, 200, { ok: true });
+      case 'chat': {
+        const text = cleanChat(body.text);
+        if (!text) return json(res, 400, { error: 'メッセージを入力してください' });
+        const me = room.seats[seat];
+        const now = Date.now();
+        me.chatTimes = (me.chatTimes || []).filter((t) => now - t < 10000);
+        if (me.chatTimes.length >= 8) return json(res, 429, { error: '送信が早すぎます。少し待ってください' });
+        me.chatTimes.push(now);
+        addChat(room, seat, text, false);
+        return json(res, 200, { ok: true });
+      }
       case 'password':
         if (seat !== room.host || room.phase !== 'lobby') return json(res, 403, { error: 'ホストのみ変更できます' });
         room.password = cleanPw(body.password);
