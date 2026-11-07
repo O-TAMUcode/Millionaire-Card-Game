@@ -5,7 +5,7 @@ const module = { exports: {} };
 // 大富豪ゲームエンジン（サーバー側で権威的に判定）
 // カード: {id, s:'S'|'H'|'D'|'C'|'X', r:3..15(14=A,15=2), 16=Joker}
 // ローカルルールの一覧は https://boardgamegarden.blogspot.com/2012/08/blog-post_4312.html を元にしています。
-// ★はページ上の「出現頻度」(★5=定番, ★1=珍しい)
+// ★は「よく使うルール度」(★5=よく使う, ★1=あまり使わない)
 
 const SUITS = ['S', 'H', 'D', 'C'];
 const SYM = { S: '♠', H: '♥', D: '♦', C: '♣' };
@@ -1125,7 +1125,6 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
   <div class="panel">
     <h2>ローカルルール <span style="font-weight:400;font-size:12px;opacity:.7">（作る部屋に適用）</span></h2>
     <div id="homeRules"></div>
-    <input id="homeNote" maxlength="200" placeholder="自由ルールのメモ（部屋の全員に表示されます）" style="width:100%;margin-top:8px">
   </div>
   <div class="row" style="justify-content:center"><button class="sub" onclick="showRules(true)">ルール説明</button></div>
 </section>
@@ -1150,8 +1149,6 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
   </div>
   <div class="panel"><h2>ローカルルール</h2>
     <div id="lbRules"></div>
-    <div id="lbNoteRow" class="row" style="margin-top:8px"><input id="lbNote" maxlength="200" placeholder="自由ルールのメモ"><button class="sub" onclick="saveLobbyRules()">メモを保存</button></div>
-    <div id="lbNoteView" class="note" style="display:none"></div>
   </div>
   <div class="panel"><h2>💬 チャット</h2>
     <div class="chat">
@@ -1248,7 +1245,7 @@ function buildPicker(box, st, editable, onChange) {
   RULES.filter(filterOK).forEach((r) => { let g = groups.find((x) => x.name === r.group); if (!g) groups.push(g = { name: r.group, list: [] }); g.list.push(r); });
   let html = '';
   if (editable) {
-    html += '<div class="rp-bar"><label>表示 <select class="rp-f"><option value="all">すべて</option><option value="5">★5（定番）のみ</option><option value="3+">★3以上</option><option value="3-">★3まで</option><option value="1-2">★1〜2（珍しい）</option></select></label><button class="sub rp-def">標準に戻す</button><button class="sub rp-off">すべてOFF</button></div>';
+    html += '<div class="rp-bar"><label>表示 <select class="rp-f"><option value="all">すべて</option><option value="5">★5（よく使う）のみ</option><option value="3+">★3以上</option><option value="3-">★3まで</option><option value="1-2">★1〜2（あまり使わない）</option></select></label><button class="sub rp-def">標準に戻す</button><button class="sub rp-off">すべてOFF</button></div>';
   } else html += '<div class="chiprow">' + (RULES.filter((r) => st[r.id]).map((r) => '<span class="chip">' + esc(r.name) + '</span>').join('') || '<span class="chip">ルールなし</span>') + '</div>';
   if (editable) {
     for (const g of groups) {
@@ -1256,7 +1253,7 @@ function buildPicker(box, st, editable, onChange) {
       html += '<details class="rg" data-g="' + esc(g.name) + '"' + (openG.has(g.name) ? ' open' : '') + '><summary><span>' + esc(g.name) + '</span><span class="cnt">ON ' + on + ' / ' + g.list.length + '</span></summary><div class="rl">' +
         g.list.map((r) => '<label class="' + (st[r.id] ? 'on' : '') + '"><input type="checkbox" data-id="' + r.id + '"' + (st[r.id] ? ' checked' : '') + '><span><span class="nm">' + esc(r.name) + '</span><span class="st">' + stars(r.stars) + '</span><small>' + esc(r.desc) + '</small></span></label>').join('') + '</div></details>';
     }
-    html += '<div style="font-size:11px;opacity:.65;margin-top:6px">★＝元ページの出現頻度（★5が定番）。未対応: ' + esc(UNSUP.join('、')) + '</div>';
+    html += '<div style="font-size:11px;opacity:.65;margin-top:6px">★が多いほど、よく使われるルールです。未対応: ' + esc(UNSUP.join('、')) + '</div>';
   }
   box.innerHTML = html;
   window.scrollTo(0, prevScroll);
@@ -1274,20 +1271,18 @@ function buildPicker(box, st, editable, onChange) {
     onChange(st);
   }));
 }
-function saveHome() { try { localStorage.setItem('dfgRules', JSON.stringify(homeRules)); localStorage.setItem('dfgNote', $('#homeNote').value); } catch (e) {} }
+function saveHome() { try { localStorage.setItem('dfgRules', JSON.stringify(homeRules)); } catch (e) {} }
 function initRules(j) {
   RULES = j.rules; UNSUP = j.unsupported; DEFAULTS = j.defaults;
   let saved = {}; try { saved = JSON.parse(localStorage.getItem('dfgRules') || '{}'); } catch (e) {}
   homeRules = {}; RULES.forEach((r) => (homeRules[r.id] = typeof saved[r.id] === 'boolean' ? saved[r.id] : !!DEFAULTS[r.id]));
-  try { $('#homeNote').value = localStorage.getItem('dfgNote') || ''; } catch (e) {}
-  $('#homeNote').onchange = saveHome;
   buildPicker($('#homeRules'), homeRules, true, saveHome);
   if (S) render();
 }
 
 // ---- 作成/参加 ----
 function enter(j) { sess = { room: j.room, token: j.token }; try { sessionStorage.setItem('dfg', JSON.stringify(sess)); } catch (e) {} history.replaceState(null, '', '?room=' + j.room); lastEv = null; resetChat(); connect(); }
-const rulePayload = () => ({ rules: homeRules, note: $('#homeNote').value });
+const rulePayload = () => ({ rules: homeRules });
 async function startAI() { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'ai', level: $('#aiLevel').value, size: +$('#aiSize').value }, rulePayload())); if (j) enter(j); }
 async function createOnline(pub) { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'online', pub, size: +$('#olSize').value, password: $('#olPw').value }, rulePayload())); if (j) enter(j); }
 async function quick() { const j = await api('/api/quick', { name: myName() }); if (j) enter(j); }
@@ -1309,14 +1304,12 @@ function copyLink() {
 }
 function setPw() { act('password', { password: $('#lbPw').value }).then((r) => r && toast($('#lbPw').value ? 'パスワードを設定しました' : 'パスワードを解除しました')); }
 let rulesTimer = null;
-function saveLobbyRules() { act('rules', { rules: lobbyRules, note: $('#lbNote').value }).then((r) => r && toast('保存しました')); }
 let lobbyRules = {};
 function lobbyChanged(st) { lobbyRules = st; clearTimeout(rulesTimer); rulesTimer = setTimeout(() => act('rules', { rules: st }), 350); }
 
 // ---- ルール説明 ----
 function showRules(fromHome) {
   const st = fromHome || !S ? homeRules : (S.rules || homeRules);
-  const note = fromHome || !S ? $('#homeNote').value : (S.note || '');
   const on = RULES.filter((r) => st[r.id]);
   $('#rulesBox').innerHTML = '<h2 style="margin-top:0">ルール説明</h2>' +
     '<div class="rule-h">基本</div><ul class="rules"><li>強さ: 3 &lt; 4 &lt; … &lt; 10 &lt; J &lt; Q &lt; K &lt; A &lt; 2 &lt; ジョーカー（ジョーカーは2枚・ワイルドカード）</li>' +
@@ -1329,7 +1322,6 @@ function showRules(fromHome) {
     '<div class="rule-h">その他の基本</div><ul class="rules"><li><b>縛り</b>: 場と同じマークの札が続けて出されると、以降そのマークしか出せません。</li><li><b>スペ3返し</b>: ジョーカー単体には、♠3単体で勝てます。</li><li>オンラインでは1手45秒。時間切れ・切断時はAIが代打します。</li><li>パスは「手動／自動」を切り替えられます（自動なら出せる札がないとき自動でパス）。</li></ul>' +
     '<div class="rule-h">この部屋で有効なローカルルール（' + on.length + '個）</div>' +
     (on.length ? '<div class="rl" style="padding:0">' + on.map((r) => '<label class="on" style="cursor:default"><span><span class="nm">' + esc(r.name) + '</span><span class="st">' + stars(r.stars) + '</span><small>' + esc(r.desc) + '</small></span></label>').join('') + '</div>' : '<div class="note">ローカルルールはありません。</div>') +
-    (note ? '<div class="rule-h">ホストからのメモ</div><div class="note">' + esc(note) + '</div>' : '') +
     '<div style="margin-top:12px"><button onclick="document.getElementById(\\'rulesModal\\').classList.remove(\\'on\\')">閉じる</button></div>';
   $('#rulesModal').classList.add('on');
 }
@@ -1453,14 +1445,11 @@ function renderLobby() {
   const host = S.you === S.host;
   $('#lbHostPanel').style.display = host ? '' : 'none';
   $('#lbWait').style.display = host ? 'none' : '';
-  $('#lbNoteRow').style.display = host ? '' : 'none';
   $('#lbLevel').value = S.level;
   const sz = $('#lbSize');
   if (!sz.options.length) for (let k = 3; k <= 10; k++) sz.add(new Option(k + '人', k));
   sz.value = S.size;
   const pw = $('#lbPw'); if (document.activeElement !== pw) pw.value = S.password || '';
-  const nt = $('#lbNote'); if (document.activeElement !== nt) nt.value = S.note || '';
-  const nv = $('#lbNoteView'); nv.style.display = !host && S.note ? '' : 'none'; nv.textContent = '📝 ' + (S.note || '');
   const box = $('#lbRules');
   if (RULES.length && S.rules) {
     const want = sig(S.rules) + (host ? 'e' : 'r') + starFilter;
@@ -1647,12 +1636,11 @@ function newCode() {
 const cleanName = (n) => String(n || '').replace(/[<>\n\r]/g, '').trim().slice(0, 12) || 'ゲスト';
 const emptySeat = () => ({ type: 'empty', name: '', token: null, conn: 0, lastSeen: 0 });
 
-const cleanNote = (t) => String(t || '').replace(/[<>]/g, '').slice(0, 200);
-function createRoom(name, pub, level, size, password, rules, note) {
+function createRoom(name, pub, level, size, password, rules) {
   size = clampSize(size);
   const code = newCode();
   const room = {
-    code, pub: !!pub, password: cleanPw(password), rules: G.normRules(rules), note: cleanNote(note), maintained: false, phase: 'lobby', host: 0, level: LEVELS.includes(level) ? level : 'normal',
+    code, pub: !!pub, password: cleanPw(password), rules: G.normRules(rules), maintained: false, phase: 'lobby', host: 0, level: LEVELS.includes(level) ? level : 'normal',
     seats: Array.from({ length: size }, emptySeat), scores: Array(size).fill(0), round: 0,
     chat: [], chatSeq: 0, g: null, clients: new Set(), timer: null, deadline: null, lastResults: null, scored: false,
     updated: Date.now(),
@@ -1689,7 +1677,7 @@ function fillAI(room) {
 function view(room, seat) {
   const g = room.g;
   const v = {
-    room: room.code, phase: room.phase, you: seat, host: room.host, level: room.level, round: room.round, pub: room.pub, locked: !!room.password, size: room.seats.length, rules: room.rules, note: room.note,
+    room: room.code, phase: room.phase, you: seat, host: room.host, level: room.level, round: room.round, pub: room.pub, locked: !!room.password, size: room.seats.length, rules: room.rules,
     password: seat === room.host ? room.password : undefined,
     seats: room.seats.map((s, i) => ({ type: s.type, name: s.name, online: s.type === 'ai' || s.conn > 0, score: room.scores[i] })),
     titles: titlesFor(room.seats.length),
@@ -1915,7 +1903,7 @@ async function handleApi(req, res, url) {
 
   if (p === '/api/create') {
     const online = body.mode === 'online';
-    const { room, token } = createRoom(body.name, online && body.pub, body.level, body.size, online ? body.password : '', body.rules, body.note);
+    const { room, token } = createRoom(body.name, online && body.pub, body.level, body.size, online ? body.password : '', body.rules);
     if (body.mode === 'ai') startGame(room);
     return json(res, 200, { room: room.code, token, seat: 0 });
   }
@@ -1959,7 +1947,6 @@ async function handleApi(req, res, url) {
       case 'rules':
         if (seat !== room.host || room.phase !== 'lobby') return json(res, 403, { error: 'ホストのみ・ロビーでのみ変更できます' });
         room.rules = G.normRules(body.rules);
-        if (body.note !== undefined) room.note = cleanNote(body.note);
         broadcast(room);
         return json(res, 200, { ok: true });
       case 'chat': {
