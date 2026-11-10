@@ -1078,6 +1078,16 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
 .drawer .dh button{padding:6px 12px}
 #chatPop{position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:33;background:#000d;border:1px solid var(--gold);border-radius:14px;padding:8px 14px;max-width:88%;font-size:14px;display:none;pointer-events:none}
 #chatPop b{color:var(--gold);margin-right:6px}
+.pubrow{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;background:#00000030;margin:6px 0}
+.pubrow .info{font-size:13px;opacity:.85;line-height:1.5}
+.pubrow .st{display:inline-block;padding:1px 8px;border-radius:99px;background:#2e7d32;color:#fff;font-size:12px;font-weight:700;margin-right:6px}
+.pubrow .st.between{background:#ef6c00}
+.pubrow button{padding:8px 16px;white-space:nowrap}
+#resBox .chatlog{height:max(260px,38dvh)}
+#resBox .res.tot{background:#ffffff0d}
+#resBtns{position:sticky;bottom:-18px;background:#17382c;padding:10px 0 4px;z-index:2}
+#resBox h3{margin:14px 0 4px;font-size:15px;color:var(--gold)}
+.waitnote{font-size:13px;opacity:.85;margin:8px 0}
 .badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:99px;background:#e53935;color:#fff;font-size:11px;line-height:18px;margin-left:4px}
 @media (max-width:600px){.opp .cnt{font-size:20px}.opp{flex-basis:90px}}
 </style>
@@ -1107,16 +1117,22 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
       <button onclick="startAI()">対戦スタート</button>
     </div>
   </div>
+  <div class="panel" id="pubPanel">
+    <h2>📢 募集中の公開部屋</h2>
+    <div id="pubList"><div class="note" style="opacity:.6;font-size:13px">読み込み中…</div></div>
+    <div style="font-size:12px;opacity:.7;margin-top:6px">ゲームの合間（結果画面）の部屋にも途中参加できます。</div>
+  </div>
   <div class="panel">
     <h2>オンライン対戦</h2>
-    <div class="row" style="margin-bottom:10px"><label>人数（最大10人） <select id="olSize"></select></label><input id="olPw" maxlength="20" placeholder="パスワード（任意・自由に設定）"></div>
+    <div class="row" style="margin-bottom:10px"><label>人数（最大10人） <select id="olSize"></select></label><input id="olPw" maxlength="20" placeholder="パスワード（任意・日本語もOK）"></div>
+    <div class="row" style="margin-bottom:10px"><input id="olCode" maxlength="12" placeholder="部屋名（任意・日本語もOK／空欄なら自動）" style="flex:1"></div>
     <div class="row" style="margin-bottom:10px">
       <button onclick="quick()">クイックマッチ</button>
       <button class="sub" onclick="createOnline(false)">部屋を作る（合言葉制）</button>
       <button class="sub" onclick="createOnline(true)">公開部屋を作る</button>
     </div>
     <div class="row">
-      <input id="joinCode" maxlength="4" placeholder="部屋コード(4文字)" style="text-transform:uppercase">
+      <input id="joinCode" maxlength="12" placeholder="部屋コード / 部屋名">
       <input id="joinPw" maxlength="20" placeholder="パスワード（あれば）">
       <button onclick="joinRoom()">参加</button>
     </div>
@@ -1195,7 +1211,16 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
     <div class="row"><input id="gcIn" maxlength="200" placeholder="メッセージ（Enterで送信）" autocomplete="off"><button onclick="sendChat('gcIn')">送信</button></div>
   </div>
 </div>
-<div class="modal" id="resModal"><div class="box" id="resBox"></div></div>
+<div class="modal" id="resModal"><div class="box" id="resBox">
+  <div id="resTop"></div>
+  <h3>💬 チャット</h3>
+  <div class="chat">
+    <div class="chatlog"></div>
+    <div class="stamps"></div>
+    <div class="row"><input id="rcIn" maxlength="200" placeholder="メッセージ（Enterで送信）" autocomplete="off" style="flex:1"><button onclick="sendChat('rcIn')">送信</button></div>
+  </div>
+  <div id="resBtns" style="margin-top:12px"></div>
+</div></div>
 <div class="modal" id="rulesModal" onclick="this.classList.remove('on')"><div class="box" onclick="event.stopPropagation()" id="rulesBox"></div></div>
 
 <script>
@@ -1205,6 +1230,7 @@ const LABEL = {3:'3',4:'4',5:'5',6:'6',7:'7',8:'8',9:'9',10:'10',11:'J',12:'Q',1
 let sess = null, S = null, es = null, sel = new Set(), deadlineAt = 0;
 let RULES = [], UNSUP = [], DEFAULTS = {};
 let homeRules = {}, starFilter = 'all', openG = new Set(['カードの効果']);
+const resCache = { top: '', btns: '' };
 let passMode = 'manual', lastEv = null, autoTok = '', bnQueue = [], bnBusy = false;
 try { sess = JSON.parse(sessionStorage.getItem('dfg') || 'null'); } catch (e) {}
 try { passMode = localStorage.getItem('dfgPass') === 'auto' ? 'auto' : 'manual'; } catch (e) {}
@@ -1281,12 +1307,30 @@ function initRules(j) {
 }
 
 // ---- 作成/参加 ----
-function enter(j) { sess = { room: j.room, token: j.token }; try { sessionStorage.setItem('dfg', JSON.stringify(sess)); } catch (e) {} history.replaceState(null, '', '?room=' + j.room); lastEv = null; resetChat(); connect(); }
+function enter(j) { sess = { room: j.room, token: j.token }; try { sessionStorage.setItem('dfg', JSON.stringify(sess)); } catch (e) {} history.replaceState(null, '', '?room=' + encodeURIComponent(j.room)); lastEv = null; resetChat(); connect(); }
 const rulePayload = () => ({ rules: homeRules });
 async function startAI() { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'ai', level: $('#aiLevel').value, size: +$('#aiSize').value }, rulePayload())); if (j) enter(j); }
-async function createOnline(pub) { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'online', pub, size: +$('#olSize').value, password: $('#olPw').value }, rulePayload())); if (j) enter(j); }
+async function createOnline(pub) { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'online', pub, size: +$('#olSize').value, password: $('#olPw').value, code: $('#olCode').value }, rulePayload())); if (j) enter(j); }
 async function quick() { const j = await api('/api/quick', { name: myName() }); if (j) enter(j); }
-async function joinRoom() { const j = await api('/api/join', { name: myName(), room: $('#joinCode').value.trim().toUpperCase(), password: $('#joinPw').value }); if (j) enter(j); }
+async function joinRoom() { const j = await api('/api/join', { name: myName(), room: $('#joinCode').value.trim(), password: $('#joinPw').value }); if (j) enter(j); }
+// ---- 公開部屋の募集一覧 ----
+let pubTimer = null;
+async function loadPub() {
+  const box = $('#pubList');
+  if (!box) return;
+  try {
+    const list = await (await fetch('/api/rooms', { cache: 'no-store' })).json();
+    box.innerHTML = list.length ? list.map((r, i) => '<div class="pubrow"><div class="info"><span class="st' + (r.status === 'between' ? ' between' : '') + '">' + (r.status === 'between' ? '途中参加OK' : '募集中') + '</span>' + (r.locked ? '🔒 ' : '') + '<b>' + esc(r.code) + '</b><br>ホスト: ' + esc(r.host) + '　' + r.players + '/' + r.size + '人' + (r.status === 'between' ? '　第' + r.round + 'ラウンド後' : '') + '</div><button data-i="' + i + '">参加</button></div>').join('') : '<div style="opacity:.6;font-size:13px">いま募集中の公開部屋はありません。「公開部屋を作る」で作れます。</div>';
+    box.querySelectorAll('button').forEach((b) => (b.onclick = () => joinPub(list[+b.dataset.i])));
+  } catch (e) { /* ignore */ }
+}
+async function joinPub(r) {
+  let pw = '';
+  if (r.locked) { pw = prompt('この部屋のパスワードを入力してください') ; if (pw == null) return; }
+  const j = await api('/api/join', { name: myName(), room: r.code, password: pw });
+  if (j) enter(j); else loadPub();
+}
+function startPubPolling() { clearInterval(pubTimer); loadPub(); pubTimer = setInterval(() => { if (!S && !document.hidden) loadPub(); }, 4000); }
 function act(type, extra) { if (!sess) return Promise.resolve(null); return api('/api/action', Object.assign({ room: sess.room, token: sess.token, type }, extra || {})); }
 async function leave(confirmFirst) {
   if (confirmFirst && !confirm('退出しますか？（AIが代わりに続けます）')) return;
@@ -1296,10 +1340,10 @@ async function leave(confirmFirst) {
 function reset() {
   if (es) es.close(); es = null; S = null; sess = null; sel.clear();
   try { sessionStorage.removeItem('dfg'); } catch (e) {} history.replaceState(null, '', location.pathname);
-  $('#resModal').classList.remove('on'); resetChat(); screen('home');
+  $('#resModal').classList.remove('on'); resCache.top = resCache.btns = ''; resetChat(); screen('home'); loadPub();
 }
 function copyLink() {
-  const url = location.origin + '/?room=' + S.room;
+  const url = location.origin + '/?room=' + encodeURIComponent(S.room);
   (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => toast('コピーしました'), () => prompt('招待リンク', url));
 }
 function setPw() { act('password', { password: $('#lbPw').value }).then((r) => r && toast($('#lbPw').value ? 'パスワードを設定しました' : 'パスワードを解除しました')); }
@@ -1335,7 +1379,7 @@ function onChat(m) {
   chatLast = m.id;
   chatLog.push(m);
   if (chatLog.length > 120) chatLog.shift();
-  const inLobby = S && S.phase === 'lobby';
+  const inLobby = S && (S.phase === 'lobby' || (S.game && S.game.phase === 'end'));
   const mine = S && m.seat === S.you && !m.sys;
   if (!inLobby && !chatOpen && !mine && !m.sys) { chatUnread++; popChat(m); }
   renderChat();
@@ -1386,7 +1430,7 @@ function initChat() {
     box.innerHTML = STAMPS.map((t) => '<button class="sub" type="button">' + esc(t) + '</button>').join('');
     box.querySelectorAll('button').forEach((b, i) => (b.onclick = () => sendChat(null, STAMPS[i])));
   });
-  for (const id of ['lcIn', 'gcIn']) {
+  for (const id of ['lcIn', 'gcIn', 'rcIn']) {
     document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); sendChat(id); } });
   }
 }
@@ -1394,7 +1438,7 @@ function initChat() {
 // ---- 接続 ----
 function connect() {
   if (es) es.close();
-  es = new EventSource('/api/events?room=' + sess.room + '&token=' + sess.token);
+  es = new EventSource('/api/events?room=' + encodeURIComponent(sess.room) + '&token=' + sess.token);
   es.addEventListener('chat', (e) => { try { onChat(JSON.parse(e.data)); } catch (err) {} });
   es.onmessage = (e) => { S = JSON.parse(e.data); const g = S.game; deadlineAt = g && g.timeLeft != null ? Date.now() + g.timeLeft : 0; handleEvents(); render(); updateChatUI(); };
   es.onerror = () => { if (es.readyState === 2) { toast('部屋に接続できませんでした'); reset(); } };
@@ -1560,13 +1604,24 @@ function renderGame() {
   // 結果
   const modal = $('#resModal');
   if (g.phase === 'end' && g.results) {
-    const rows = g.results.map((r) => '<div class="res' + (r.seat === you ? ' me' : '') + '"><span>' + (r.place + 1) + '位 ' + r.title + '　' + esc(S.seats[r.seat].name) + '</span><span>+' + r.add + '点（計' + S.seats[r.seat].score + '）</span></div>').join('');
-    $('#resBox').innerHTML = '<h2 style="margin-top:0">ラウンド ' + S.round + ' 結果</h2>' + rows +
-      '<div class="row" style="margin-top:12px"><button onclick="act(\\'next\\')">次のラウンドへ</button>' +
+    const last = g.results.map((r) => '<div class="res' + (r.seat === you ? ' me' : '') + '"><span>' + (r.place + 1) + '位 ' + r.title + '　' + esc(S.seats[r.seat].name) + '</span><span>+' + r.add + '点</span></div>').join('');
+    const tot = S.seats.map((x, i) => ({ i, x })).sort((a, b) => b.x.score - a.x.score || b.x.wins - a.x.wins || a.i - b.i);
+    let rk = 0, prevScore = null;
+    const total = tot.map((t, idx) => {
+      if (t.x.score !== prevScore) { rk = idx + 1; prevScore = t.x.score; }
+      return '<div class="res tot' + (t.i === you ? ' me' : '') + '"><span>' + rk + '位　' + esc(t.x.name) + (t.x.type === 'human' && !t.x.online ? ' <small style="opacity:.6">(切断中)</small>' : '') + '</span><span>' + t.x.score + '点　<small style="opacity:.7">👑' + (t.x.wins || 0) + '回</small></span></div>';
+    }).join('');
+    const top = '<h2 style="margin-top:0">ラウンド ' + S.round + ' 結果</h2><h3 style="margin-top:4px">直前の結果</h3>' + last + '<h3>総合ランキング（' + S.round + 'ラウンド累計）</h3>' + total;
+    if (resCache.top !== top) { $('#resTop').innerHTML = top; resCache.top = top; }
+    const iReady = (g.ready || []).includes(you);
+    const names = (g.waiting || []).map((i) => esc(S.seats[i].name)).join('、');
+    const btns = '<div class="waitnote">' + (g.waiting && g.waiting.length ? (iReady ? '✅ 準備OK！ ほかの人を待っています：' : '全員が「次へ」を押すと始まります。待ち：') + names : '全員そろいました') + '</div>' +
+      '<div class="row"><button id="nextBtn"' + (iReady ? ' disabled' : '') + ' onclick="act(\\'next\\')">' + (iReady ? '準備OK（待機中）' : '次のラウンドを始める') + '</button>' +
       (S.you === S.host ? '<button class="sub" onclick="act(\\'lobby\\')">ロビーに戻る</button>' : '') +
       '<button class="sub" onclick="leave()">退出</button></div>';
-    modal.classList.add('on');
-  } else modal.classList.remove('on');
+    if (resCache.btns !== btns) { $('#resBtns').innerHTML = btns; resCache.btns = btns; }
+    if (!modal.classList.contains('on')) { modal.classList.add('on'); renderChat(); }
+  } else { modal.classList.remove('on'); resCache.top = resCache.btns = ''; }
 }
 window.addEventListener('resize', () => { if (S && S.game && S.phase !== 'lobby') fitHand($('#hand')); });
 setInterval(() => {
@@ -1582,10 +1637,11 @@ setInterval(() => {
   for (const id of ['aiSize', 'olSize']) { const el = document.getElementById(id); for (let k = 3; k <= 10; k++) el.add(new Option(k + '人', k)); el.value = 4; }
   $('#passMode').value = passMode;
   initChat();
+  startPubPolling();
   const q = new URLSearchParams(location.search).get('room');
   fetch('/api/rules').then((r) => r.json()).then(initRules).catch(() => toast('ルール一覧を読み込めませんでした'));
-  if (sess && (!q || q.toUpperCase() === sess.room)) { screen('home'); connect(); return; }
-  if (q) $('#joinCode').value = q.toUpperCase();
+  if (sess && (!q || q.toUpperCase() === String(sess.room).toUpperCase())) { screen('home'); connect(); return; }
+  if (q) $('#joinCode').value = q;
   screen('home');
 })();
 </script>
@@ -1617,7 +1673,9 @@ function titlesFor(n) {
   return t;
 }
 const clampSize = (n) => Math.max(MIN_PLAYERS, Math.min(MAX_PLAYERS, parseInt(n, 10) || 4));
-const cleanPw = (p) => String(p || '').slice(0, 20);
+const cleanPw = (p) => String(p == null ? '' : p).normalize('NFKC').trim().slice(0, 20); // 日本語など何でもOK
+const normCode = (c) => String(c == null ? '' : c).normalize('NFKC').replace(/[<>\s]/g, '').toUpperCase().slice(0, 12);
+const getRoom = (c) => rooms.get(normCode(c));
 const TURN_MS = 45000;
 const AI_DELAY = Number(process.env.AI_DELAY_MS || 800); // AIの思考待ち(ms)。テスト時は短くできる
 const LEVELS = ['easy', 'normal', 'hard'];
@@ -1636,12 +1694,12 @@ function newCode() {
 const cleanName = (n) => String(n || '').replace(/[<>\n\r]/g, '').trim().slice(0, 12) || 'ゲスト';
 const emptySeat = () => ({ type: 'empty', name: '', token: null, conn: 0, lastSeen: 0 });
 
-function createRoom(name, pub, level, size, password, rules) {
+function createRoom(name, pub, level, size, password, rules, customCode) {
   size = clampSize(size);
-  const code = newCode();
+  const code = customCode || newCode();
   const room = {
     code, pub: !!pub, password: cleanPw(password), rules: G.normRules(rules), maintained: false, phase: 'lobby', host: 0, level: LEVELS.includes(level) ? level : 'normal',
-    seats: Array.from({ length: size }, emptySeat), scores: Array(size).fill(0), round: 0,
+    seats: Array.from({ length: size }, emptySeat), scores: Array(size).fill(0), wins: Array(size).fill(0), round: 0, ready: new Set(),
     chat: [], chatSeq: 0, g: null, clients: new Set(), timer: null, deadline: null, lastResults: null, scored: false,
     updated: Date.now(),
   };
@@ -1679,7 +1737,7 @@ function view(room, seat) {
   const v = {
     room: room.code, phase: room.phase, you: seat, host: room.host, level: room.level, round: room.round, pub: room.pub, locked: !!room.password, size: room.seats.length, rules: room.rules,
     password: seat === room.host ? room.password : undefined,
-    seats: room.seats.map((s, i) => ({ type: s.type, name: s.name, online: s.type === 'ai' || s.conn > 0, score: room.scores[i] })),
+    seats: room.seats.map((s, i) => ({ type: s.type, name: s.name, online: s.type === 'ai' || s.conn > 0, score: room.scores[i], wins: room.wins[i] || 0 })),
     titles: titlesFor(room.seats.length),
   };
   if (room.phase === 'game' && g) {
@@ -1703,7 +1761,12 @@ function view(room, seat) {
       };
     }
     if (room.deadline) gv.timeLeft = Math.max(0, room.deadline - Date.now());
-    if (g.phase === 'end') gv.results = room.lastResults;
+    if (g.phase === 'end') {
+      gv.results = room.lastResults;
+      gv.ready = [...room.ready];
+      gv.waiting = waitingSeats(room);
+      gv.canJoin = joinableSeat(room) != null;
+    }
     v.game = gv;
   }
   return v;
@@ -1737,6 +1800,7 @@ function startRound(room, prev) {
   room.g = G.newRound(prev, room.seats.length, room.rules, { maintained: room.maintained });
   room.round++;
   room.scored = false;
+  room.ready = new Set();
   room.lastResults = null;
   room.phase = 'game';
   if (room.g.phase === 'end') { finishIfEnd(room); broadcast(room); return; }
@@ -1749,6 +1813,8 @@ function finishIfEnd(room) {
     room.maintained = !!g.maintained;
     const n = room.seats.length;
     const titles = titlesFor(n);
+    room.ready = new Set();
+    if (g.places.length) room.wins[g.places[0]] = (room.wins[g.places[0]] || 0) + 1;
     room.lastResults = g.places.map((seat, p) => {
       const add = n - 1 - p;
       room.scores[seat] += add;
@@ -1807,10 +1873,57 @@ function botMove(room, seat) {
   afterMove(room);
 }
 
+// ---- 次のラウンド: 全員が「始める」を押すまで待つ ----
+function waitingSeats(room) {
+  const w = [];
+  room.seats.forEach((s, i) => { if (s.type === 'human' && !isBot(room, i) && !room.ready.has(i)) w.push(i); });
+  return w;
+}
+function checkReady(room) {
+  const g = room.g;
+  if (room.phase !== 'game' || !g || g.phase !== 'end') return false;
+  if (waitingSeats(room).length > 0) return false;
+  startRound(room, prevPlacesFor(room));
+  broadcast(room);
+  return true;
+}
+// 途中参加で席が増えた場合も、前回順位を全席ぶんに揃える
+function prevPlacesFor(room) {
+  const g = room.g;
+  const n = room.seats.length;
+  const prev = g.places.filter((x) => x < n);
+  for (let i = 0; i < n; i++) if (!prev.includes(i)) prev.push(i);
+  return prev;
+}
+// 結果画面での途中参加: 空席 → AI席の順に探す。なければ10人まで席を増やす
+function joinableSeat(room) {
+  if (room.phase === 'lobby') { const i = room.seats.findIndex((s) => s.type === 'empty'); return i < 0 ? null : i; }
+  if (room.phase === 'game' && room.g && room.g.phase === 'end') {
+    const e = room.seats.findIndex((s) => s.type === 'empty');
+    if (e >= 0) return e;
+    let best = -1;
+    room.seats.forEach((s, i) => { if (s.type === 'ai' && (best < 0 || room.scores[i] < room.scores[best])) best = i; });
+    if (best >= 0) return best;
+    if (room.seats.length < MAX_PLAYERS) return room.seats.length;
+  }
+  return null;
+}
+function seatNewcomer(room, name) {
+  let i = joinableSeat(room);
+  if (i == null) return null;
+  if (i >= room.seats.length) { room.seats.push(emptySeat()); room.scores.push(0); room.wins.push(0); }
+  const token = seatHuman(room, i, name);
+  if (room.phase === 'game') { room.scores[i] = 0; room.wins[i] = 0; room.ready.delete(i); }
+  addChat(room, -1, room.seats[i].name + ' が参加しました', true);
+  broadcast(room);
+  return { token, seat: i };
+}
+
 function startGame(room) {
   fillAI(room);
   room.maintained = false;
   room.scores = Array(room.seats.length).fill(0);
+  room.wins = Array(room.seats.length).fill(0);
   room.round = 0;
   startRound(room, null);
 }
@@ -1820,6 +1933,8 @@ function toLobby(room) {
   room.phase = 'lobby';
   room.g = null;
   room.scores = Array(room.seats.length).fill(0);
+  room.wins = Array(room.seats.length).fill(0);
+  room.ready = new Set();
   room.round = 0;
   room.seats = room.seats.map((s) => (s.type === 'ai' ? emptySeat() : s));
   if (room.seats[room.host].type !== 'human') {
@@ -1842,8 +1957,10 @@ function leaveSeat(room, seat) {
     return;
   }
   if (room.host === seat) room.host = room.seats.findIndex((x) => x.type === 'human');
+  room.ready.delete(seat);
   if (room.phase === 'game') schedule(room);
   broadcast(room);
+  checkReady(room);
 }
 
 // ---- HTTP ---------------------------------------------------------------
@@ -1866,12 +1983,12 @@ async function handleApi(req, res, url) {
   }
   if (req.method === 'GET' && p === '/api/rooms') {
     const list = [...rooms.values()]
-      .filter((r) => r.pub && r.phase === 'lobby' && r.seats.some((s) => s.type === 'empty'))
-      .map((r) => ({ code: r.code, host: r.seats[r.host].name, players: humans(r), size: r.seats.length, locked: !!r.password }));
+      .filter((r) => r.pub && joinableSeat(r) != null)
+      .map((r) => ({ code: r.code, host: r.seats[r.host].name, players: humans(r), size: r.seats.length, locked: !!r.password, status: r.phase === 'lobby' ? 'lobby' : 'between', round: r.round }));
     return json(res, 200, list);
   }
   if (req.method === 'GET' && p === '/api/events') {
-    const room = rooms.get(String(url.searchParams.get('room') || '').toUpperCase());
+    const room = getRoom(url.searchParams.get('room'));
     const token = url.searchParams.get('token');
     const seat = room ? seatByToken(room, token) : -1;
     if (!room || seat < 0) { res.writeHead(404); res.end(); return; }
@@ -1892,7 +2009,7 @@ async function handleApi(req, res, url) {
       room.clients.delete(client);
       const cur = room.seats[seat];
       if (cur && cur.token === token) { cur.conn = Math.max(0, cur.conn - 1); cur.lastSeen = Date.now(); }
-      setTimeout(() => { if (rooms.has(room.code)) { broadcast(room); if (room.phase === 'game') schedule(room); } }, 3500);
+      setTimeout(() => { if (rooms.has(room.code)) { broadcast(room); if (room.phase === 'game') schedule(room); checkReady(room); } }, 3500);
     });
     return;
   }
@@ -1903,36 +2020,36 @@ async function handleApi(req, res, url) {
 
   if (p === '/api/create') {
     const online = body.mode === 'online';
-    const { room, token } = createRoom(body.name, online && body.pub, body.level, body.size, online ? body.password : '', body.rules);
+    let custom = '';
+    if (online && body.code) {
+      custom = normCode(body.code);
+      if (custom.length < 2) return json(res, 400, { error: '部屋名は2文字以上にしてください' });
+      if (rooms.has(custom)) return json(res, 400, { error: 'その部屋名はすでに使われています' });
+    }
+    const { room, token } = createRoom(body.name, online && body.pub, body.level, body.size, online ? body.password : '', body.rules, custom);
     if (body.mode === 'ai') startGame(room);
     return json(res, 200, { room: room.code, token, seat: 0 });
   }
   if (p === '/api/join') {
-    const room = rooms.get(String(body.room || '').toUpperCase());
+    const room = getRoom(body.room);
     if (!room) return json(res, 404, { error: '部屋が見つかりません' });
-    if (room.phase !== 'lobby') return json(res, 400, { error: 'この部屋はすでにゲーム中です' });
     if (room.password && cleanPw(body.password) !== room.password) return json(res, 403, { error: 'パスワードが違います' });
-    const i = room.seats.findIndex((s) => s.type === 'empty');
-    if (i < 0) return json(res, 400, { error: '満席です' });
-    const token = seatHuman(room, i, body.name);
-    addChat(room, -1, room.seats[i].name + ' が参加しました', true);
-    broadcast(room);
-    return json(res, 200, { room: room.code, token, seat: i });
+    if (room.phase !== 'lobby' && !(room.g && room.g.phase === 'end')) return json(res, 400, { error: 'ゲーム中です。ラウンドの結果画面になると参加できます' });
+    const r = seatNewcomer(room, body.name);
+    if (!r) return json(res, 400, { error: '満席です' });
+    return json(res, 200, { room: room.code, token: r.token, seat: r.seat });
   }
   if (p === '/api/quick') {
-    let room = [...rooms.values()].find((r) => r.pub && !r.password && r.phase === 'lobby' && r.seats.some((s) => s.type === 'empty'));
+    const room = [...rooms.values()].find((r) => r.pub && !r.password && joinableSeat(r) != null);
     if (room) {
-      const i = room.seats.findIndex((s) => s.type === 'empty');
-      const token = seatHuman(room, i, body.name);
-      addChat(room, -1, room.seats[i].name + ' が参加しました', true);
-      broadcast(room);
-      return json(res, 200, { room: room.code, token, seat: i });
+      const r = seatNewcomer(room, body.name);
+      if (r) return json(res, 200, { room: room.code, token: r.token, seat: r.seat });
     }
     const made = createRoom(body.name, true, 'normal', 4, '');
     return json(res, 200, { room: made.room.code, token: made.token, seat: 0 });
   }
   if (p === '/api/action') {
-    const room = rooms.get(String(body.room || '').toUpperCase());
+    const room = getRoom(body.room);
     if (!room) return json(res, 404, { error: '部屋がありません' });
     const seat = seatByToken(room, body.token);
     if (seat < 0) return json(res, 403, { error: '認証エラー' });
@@ -1974,6 +2091,7 @@ async function handleApi(req, res, url) {
         while (room.seats.length < n) room.seats.push(emptySeat());
         room.seats.length = n;
         room.scores = Array(n).fill(0);
+        room.wins = Array(n).fill(0);
         broadcast(room);
         return json(res, 200, { ok: true });
       }
@@ -1994,7 +2112,8 @@ async function handleApi(req, res, url) {
       }
       case 'next':
         if (room.phase !== 'game' || !g || g.phase !== 'end') return json(res, 400, { error: '結果表示中ではありません' });
-        startRound(room, g.places);
+        room.ready.add(seat);
+        if (!checkReady(room)) broadcast(room);
         return json(res, 200, { ok: true });
       case 'lobby':
         if (seat !== room.host) return json(res, 403, { error: 'ホストのみ操作できます' });
