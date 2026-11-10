@@ -1264,6 +1264,14 @@ function filterOK(r) {
   if (starFilter === '1-2') return r.stars <= 2;
   return true;
 }
+// ---- ルールの保存（この端末のブラウザに保存） ----
+let presetSel = '';
+function loadPresets() { try { const o = JSON.parse(localStorage.getItem('dfgPresets') || '{}'); return o && typeof o === 'object' ? o : {}; } catch (e) { return {}; } }
+function savePresets(o) { try { localStorage.setItem('dfgPresets', JSON.stringify(o)); return true; } catch (e) { return false; } }
+function presetOptions() {
+  const names = Object.keys(loadPresets());
+  return '<option value="">' + (names.length ? '選んで読み込む…' : '（まだありません）') + '</option>' + names.map((n) => '<option value="' + esc(n) + '"' + (n === presetSel ? ' selected' : '') + '>' + esc(n) + '</option>').join('');
+}
 function buildPicker(box, st, editable, onChange) {
   box._sig = sig(st) + (editable ? 'e' : 'r') + starFilter;
   const prevScroll = window.scrollY;
@@ -1271,7 +1279,8 @@ function buildPicker(box, st, editable, onChange) {
   RULES.filter(filterOK).forEach((r) => { let g = groups.find((x) => x.name === r.group); if (!g) groups.push(g = { name: r.group, list: [] }); g.list.push(r); });
   let html = '';
   if (editable) {
-    html += '<div class="rp-bar"><label>表示 <select class="rp-f"><option value="all">すべて</option><option value="5">★5（よく使う）のみ</option><option value="3+">★3以上</option><option value="3-">★3まで</option><option value="1-2">★1〜2（あまり使わない）</option></select></label><button class="sub rp-def">標準に戻す</button><button class="sub rp-off">すべてOFF</button></div>';
+    html += '<div class="rp-bar"><label>表示 <select class="rp-f"><option value="all">すべて</option><option value="5">★5（よく使う）のみ</option><option value="3+">★3以上</option><option value="3-">★3まで</option><option value="1-2">★1〜2（あまり使わない）</option></select></label><button class="sub rp-def">標準に戻す</button><button class="sub rp-all">すべてON</button><button class="sub rp-off">すべてOFF</button></div>' +
+      '<div class="rp-bar"><label>保存したルール <select class="rp-ps">' + presetOptions() + '</select></label><button class="sub rp-save">名前をつけて保存</button><button class="sub rp-del">削除</button></div>';
   } else html += '<div class="chiprow">' + (RULES.filter((r) => st[r.id]).map((r) => '<span class="chip">' + esc(r.name) + '</span>').join('') || '<span class="chip">ルールなし</span>') + '</div>';
   if (editable) {
     for (const g of groups) {
@@ -1287,6 +1296,32 @@ function buildPicker(box, st, editable, onChange) {
   const f = box.querySelector('.rp-f'); f.value = starFilter;
   f.onchange = () => { starFilter = f.value; buildPicker(box, st, editable, onChange); };
   box.querySelector('.rp-def').onclick = () => { RULES.forEach((r) => (st[r.id] = !!DEFAULTS[r.id])); buildPicker(box, st, editable, onChange); onChange(st); };
+  box.querySelector('.rp-all').onclick = () => { RULES.forEach((r) => (st[r.id] = true)); buildPicker(box, st, editable, onChange); onChange(st); };
+  const ps = box.querySelector('.rp-ps');
+  ps.onchange = () => {
+    if (!ps.value) return;
+    const p = loadPresets()[ps.value];
+    if (!p) return;
+    RULES.forEach((r) => (st[r.id] = p[r.id] === true));
+    presetSel = ps.value;
+    buildPicker(box, st, editable, onChange); onChange(st); toast('「' + ps.value + '」を読み込みました');
+  };
+  box.querySelector('.rp-save').onclick = () => {
+    const name = (prompt('このルールの組み合わせに名前をつけて保存します', presetSel) || '').trim().slice(0, 20);
+    if (!name) return;
+    const all = loadPresets();
+    if (all[name] && !confirm('「' + name + '」はすでにあります。上書きしますか？')) return;
+    all[name] = {}; RULES.forEach((r) => (all[name][r.id] = !!st[r.id]));
+    if (!savePresets(all)) { toast('この端末では保存できませんでした'); return; }
+    presetSel = name; buildPicker(box, st, editable, onChange); toast('「' + name + '」を保存しました');
+  };
+  box.querySelector('.rp-del').onclick = () => {
+    const name = ps.value;
+    if (!name) { toast('消したい保存ルールを選んでください'); return; }
+    if (!confirm('「' + name + '」を削除しますか？')) return;
+    const all = loadPresets(); delete all[name]; savePresets(all);
+    presetSel = ''; buildPicker(box, st, editable, onChange); toast('削除しました');
+  };
   box.querySelector('.rp-off').onclick = () => { RULES.forEach((r) => (st[r.id] = false)); buildPicker(box, st, editable, onChange); onChange(st); };
   box.querySelectorAll('details.rg').forEach((d) => d.addEventListener('toggle', () => { if (d.open) openG.add(d.dataset.g); else openG.delete(d.dataset.g); }));
   box.querySelectorAll('input[type=checkbox]').forEach((cb) => (cb.onchange = () => {
