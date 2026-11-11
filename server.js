@@ -1088,6 +1088,13 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
 #resBtns{position:sticky;bottom:-18px;background:#17382c;padding:10px 0 4px;z-index:2}
 #resBox h3{margin:14px 0 4px;font-size:15px;color:var(--gold)}
 .waitnote{font-size:13px;opacity:.85;margin:8px 0}
+.tbl{background:#00000030;border-radius:12px;padding:10px;margin:8px 0}
+.tbl.mine{outline:2px solid var(--gold)}
+.tbl .th{display:flex;justify-content:space-between;margin-bottom:4px;font-size:14px}
+.tp{padding:5px 10px;border-radius:8px;font-size:15px}
+.tp.win{background:#f4c54233}
+.tp.me{font-weight:700;text-decoration:underline}
+.champ{font-size:22px;text-align:center;line-height:1.6}
 .badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:99px;background:#e53935;color:#fff;font-size:11px;line-height:18px;margin-left:4px}
 @media (max-width:600px){.opp .cnt{font-size:20px}.opp{flex-basis:90px}}
 </style>
@@ -1123,8 +1130,15 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
     <div style="font-size:12px;opacity:.7;margin-top:6px">ゲームの合間（結果画面）の部屋にも途中参加できます。</div>
   </div>
   <div class="panel">
+    <h2>🏆 大会モード（16人・4人一組）</h2>
+    <div style="font-size:13px;line-height:1.6;opacity:.9;margin-bottom:10px">1回戦は4人ずつの4卓で対戦。<b>各卓の大富豪</b>が決勝（4人）に進み、<b>決勝の大富豪が優勝</b>です。空席はAIが入ります。開始後は、途中参加・人数・ルールの変更はできません。大会のルールは、下の「ローカルルール」で選んだものになります。</div>
+    <div class="row" style="margin-bottom:10px"><label>AIの強さ <select id="tourLevel"><option value="easy">よわい</option><option value="normal" selected>ふつう</option><option value="hard">つよい</option></select></label></div>
+    <div class="row"><button onclick="createTour(true)">公開の大会を開く</button><button class="sub" onclick="createTour(false)">合言葉制の大会を開く</button></div>
+    <div style="font-size:12px;opacity:.7;margin-top:6px">16人に満たないときは、空席をAIが埋めます（人が少なくても開始できます）。パスワード・部屋名は、この下の「オンライン対戦」欄の入力を使います。</div>
+  </div>
+  <div class="panel">
     <h2>オンライン対戦</h2>
-    <div class="row" style="margin-bottom:10px"><label>人数（最大10人） <select id="olSize"></select></label><input id="olPw" maxlength="20" placeholder="パスワード（任意・日本語もOK）"></div>
+    <div class="row" style="margin-bottom:10px"><label>人数（最大10人） <select id="olSize"></select></label><label>AIの強さ <select id="olLevel"><option value="easy">よわい</option><option value="normal" selected>ふつう</option><option value="hard">つよい</option></select></label><input id="olPw" maxlength="20" placeholder="パスワード（任意・日本語もOK）"></div>
     <div class="row" style="margin-bottom:10px"><input id="olCode" maxlength="12" placeholder="部屋名（任意・日本語もOK／空欄なら自動）" style="flex:1"></div>
     <div class="row" style="margin-bottom:10px">
       <button onclick="quick()">クイックマッチ</button>
@@ -1147,7 +1161,7 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
 
 <!-- ロビー -->
 <section class="screen" id="lobby">
-  <h1>ロビー</h1>
+  <h1 id="lbTitle">ロビー</h1>
   <div class="panel">
     <div class="code" id="lbCode"></div>
     <div class="row" style="justify-content:center;margin-top:8px">
@@ -1160,11 +1174,12 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
     <div class="row" style="margin-bottom:8px"><label>人数 <select id="lbSize" onchange="act('size',{size:+this.value})"></select></label><input id="lbPw" maxlength="20" placeholder="パスワード（空欄でなし）"><button class="sub" onclick="setPw()">設定</button></div>
     <div class="row">
       <label>AIの強さ <select id="lbLevel" onchange="act('level',{level:this.value})"><option value="easy">よわい</option><option value="normal">ふつう</option><option value="hard">つよい</option></select></label>
-      <button onclick="act('start')">ゲーム開始（空席はAI）</button>
+      <button id="lbStart" onclick="act('start')">ゲーム開始（空席はAI）</button>
     </div>
   </div>
-  <div class="panel"><h2>ローカルルール</h2>
+  <div class="panel"><h2 id="lbRulesH">ローカルルール</h2>
     <div id="lbRules"></div>
+    <div id="lbRuleDesc"></div>
   </div>
   <div class="panel"><h2>💬 チャット</h2>
     <div class="chat">
@@ -1176,6 +1191,21 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
   <div id="lbWait" class="hint" style="display:none">ホストの開始を待っています…</div>
   <div id="lbInfo" class="hint"></div>
   <div class="row" style="justify-content:center"><button class="sub" onclick="showRules()">ルール説明</button><button class="sub" onclick="leave()">退出</button></div>
+</section>
+
+<!-- 大会（対戦表） -->
+<section class="screen" id="tour">
+  <h1>🏆 大会</h1>
+  <div class="panel" id="tourStatus"></div>
+  <div id="tourBracket"></div>
+  <div class="panel"><h2>💬 チャット</h2>
+    <div class="chat">
+      <div class="chatlog"></div>
+      <div class="stamps"></div>
+      <div class="row"><input id="tcIn" maxlength="200" placeholder="メッセージを入力（Enterで送信）" autocomplete="off" style="flex:1"><button onclick="sendChat('tcIn')">送信</button></div>
+    </div>
+  </div>
+  <div class="row" style="justify-content:center"><button class="sub" onclick="showRules()">ルール説明</button><button id="tourAgain" style="display:none" onclick="act('lobby')">もう一度大会（ロビーへ）</button><button class="sub" onclick="leave(true)">退出</button></div>
 </section>
 
 <!-- ゲーム -->
@@ -1220,6 +1250,13 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
     <div class="row"><input id="rcIn" maxlength="200" placeholder="メッセージ（Enterで送信）" autocomplete="off" style="flex:1"><button onclick="sendChat('rcIn')">送信</button></div>
   </div>
   <div id="resBtns" style="margin-top:12px"></div>
+</div></div>
+<div class="modal" id="setModal" style="z-index:32"><div class="box">
+  <h2 style="margin-top:0">人数・ルールの変更</h2>
+  <div class="hint" style="margin-bottom:8px">変更は次のラウンドから。変更すると、全員がもう一度「次へ」を押す必要があります。</div>
+  <div class="row" style="margin-bottom:10px"><label>人数 <select id="setSize" onchange="changeSize(this)"></select></label><label>AIの強さ <select id="setLevel" onchange="act('level',{level:this.value})"><option value="easy">よわい</option><option value="normal">ふつう</option><option value="hard">つよい</option></select></label></div>
+  <div id="setRules"></div>
+  <div style="margin-top:12px"><button onclick="closeSet()">閉じる</button></div>
 </div></div>
 <div class="modal" id="rulesModal" onclick="this.classList.remove('on')"><div class="box" onclick="event.stopPropagation()" id="rulesBox"></div></div>
 
@@ -1345,7 +1382,8 @@ function initRules(j) {
 function enter(j) { sess = { room: j.room, token: j.token }; try { sessionStorage.setItem('dfg', JSON.stringify(sess)); } catch (e) {} history.replaceState(null, '', '?room=' + encodeURIComponent(j.room)); lastEv = null; resetChat(); connect(); }
 const rulePayload = () => ({ rules: homeRules });
 async function startAI() { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'ai', level: $('#aiLevel').value, size: +$('#aiSize').value }, rulePayload())); if (j) enter(j); }
-async function createOnline(pub) { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'online', pub, size: +$('#olSize').value, password: $('#olPw').value, code: $('#olCode').value }, rulePayload())); if (j) enter(j); }
+async function createOnline(pub) { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'online', pub, level: $('#olLevel').value, size: +$('#olSize').value, password: $('#olPw').value, code: $('#olCode').value }, rulePayload())); if (j) enter(j); }
+async function createTour(pub) { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'tour', pub, level: $('#tourLevel').value, password: $('#olPw').value, code: $('#olCode').value }, rulePayload())); if (j) enter(j); }
 async function quick() { const j = await api('/api/quick', { name: myName() }); if (j) enter(j); }
 async function joinRoom() { const j = await api('/api/join', { name: myName(), room: $('#joinCode').value.trim(), password: $('#joinPw').value }); if (j) enter(j); }
 // ---- 公開部屋の募集一覧 ----
@@ -1355,7 +1393,7 @@ async function loadPub() {
   if (!box) return;
   try {
     const list = await (await fetch('/api/rooms', { cache: 'no-store' })).json();
-    box.innerHTML = list.length ? list.map((r, i) => '<div class="pubrow"><div class="info"><span class="st' + (r.status === 'between' ? ' between' : '') + '">' + (r.status === 'between' ? '途中参加OK' : '募集中') + '</span>' + (r.locked ? '🔒 ' : '') + '<b>' + esc(r.code) + '</b><br>ホスト: ' + esc(r.host) + '　' + r.players + '/' + r.size + '人' + (r.status === 'between' ? '　第' + r.round + 'ラウンド後' : '') + '</div><button data-i="' + i + '">参加</button></div>').join('') : '<div style="opacity:.6;font-size:13px">いま募集中の公開部屋はありません。「公開部屋を作る」で作れます。</div>';
+    box.innerHTML = list.length ? list.map((r, i) => '<div class="pubrow"><div class="info"><span class="st' + (r.status === 'between' ? ' between' : '') + '">' + (r.kind === 'tour' ? '🏆大会 募集中' : r.status === 'between' ? '途中参加OK' : '募集中') + '</span>' + (r.locked ? '🔒 ' : '') + '<b>' + esc(r.code) + '</b><br>ホスト: ' + esc(r.host) + '　' + r.players + '/' + r.size + '人' + (r.status === 'between' ? '　第' + r.round + 'ラウンド後' : '') + '</div><button data-i="' + i + '">参加</button></div>').join('') : '<div style="opacity:.6;font-size:13px">いま募集中の公開部屋はありません。「公開部屋を作る」で作れます。</div>';
     box.querySelectorAll('button').forEach((b) => (b.onclick = () => joinPub(list[+b.dataset.i])));
   } catch (e) { /* ignore */ }
 }
@@ -1366,6 +1404,27 @@ async function joinPub(r) {
   if (j) enter(j); else loadPub();
 }
 function startPubPolling() { clearInterval(pubTimer); loadPub(); pubTimer = setInterval(() => { if (!S && !document.hidden) loadPub(); }, 4000); }
+function switchRoom(code) {
+  if (!sess || sess.room === code) return;
+  sess.room = code;
+  try { sessionStorage.setItem('dfg', JSON.stringify(sess)); } catch (e) {}
+  history.replaceState(null, '', '?room=' + encodeURIComponent(code));
+  lastEv = null; S = null; sel.clear(); resCache.top = resCache.btns = '';
+  $('#resModal').classList.remove('on'); $('#setModal').classList.remove('on');
+  resetChat(); connect();
+}
+let setRules = {};
+function openSet() {
+  if (!S) return;
+  const sz = $('#setSize');
+  if (!sz.options.length) for (let k = 3; k <= 10; k++) sz.add(new Option(k + '人', k));
+  sz.value = S.size; $('#setLevel').value = S.level;
+  setRules = Object.assign({}, S.rules);
+  buildPicker($('#setRules'), setRules, true, lobbyChanged);
+  $('#setModal').classList.add('on');
+}
+function closeSet() { $('#setModal').classList.remove('on'); }
+function changeSize(sel) { act('size', { size: +sel.value }).then((r) => { if (!r && S) sel.value = S.size; }); }
 function act(type, extra) { if (!sess) return Promise.resolve(null); return api('/api/action', Object.assign({ room: sess.room, token: sess.token, type }, extra || {})); }
 async function leave(confirmFirst) {
   if (confirmFirst && !confirm('退出しますか？（AIが代わりに続けます）')) return;
@@ -1414,7 +1473,7 @@ function onChat(m) {
   chatLast = m.id;
   chatLog.push(m);
   if (chatLog.length > 120) chatLog.shift();
-  const inLobby = S && (S.phase === 'lobby' || (S.game && S.game.phase === 'end'));
+  const inLobby = S && (S.phase === 'lobby' || S.phase === 'tour' || (S.game && S.game.phase === 'end'));
   const mine = S && m.seat === S.you && !m.sys;
   if (!inLobby && !chatOpen && !mine && !m.sys) { chatUnread++; popChat(m); }
   renderChat();
@@ -1465,7 +1524,7 @@ function initChat() {
     box.innerHTML = STAMPS.map((t) => '<button class="sub" type="button">' + esc(t) + '</button>').join('');
     box.querySelectorAll('button').forEach((b, i) => (b.onclick = () => sendChat(null, STAMPS[i])));
   });
-  for (const id of ['lcIn', 'gcIn', 'rcIn']) {
+  for (const id of ['lcIn', 'gcIn', 'rcIn', 'tcIn']) {
     document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); sendChat(id); } });
   }
 }
@@ -1515,10 +1574,33 @@ const key = (ids) => ids.slice().sort((a, b) => a - b).join(',');
 
 function render() {
   if (!S) return;
+  if (S.tour && S.tour.go && sess && S.tour.go !== sess.room) { switchRoom(S.tour.go); return; }
+  if (S.phase === 'tour') { $('#resModal').classList.remove('on'); renderTour(); screen('tour'); return; }
   if (S.phase === 'lobby') { $('#resModal').classList.remove('on'); renderLobby(); screen('lobby'); }
   else { screen('game'); renderGame(); }
 }
+function renderTour() {
+  const T = S.tour, you = S.you;
+  const champ = T.champion >= 0 ? S.seats[T.champion].name : null;
+  const mineDone = T.stages.flatMap((st) => st.tables).filter((t) => t.done && t.seats.some((x) => x.i === you));
+  const out = mineDone.some((t) => t.winner !== you);
+  $('#tourStatus').innerHTML = champ
+    ? '<div class="champ">🏆 優勝<br><b>' + esc(champ) + '</b>' + (T.champion === you ? '（あなた！おめでとう）' : '') + '</div>'
+    : '<div>' + (T.stage === 1 ? '1回戦 進行中' : '決勝 進行中') + '　各卓の大富豪が次に進みます。' + (out ? '<br>あなたは敗退しました。チャットと対戦表は見られます。' : '') + '</div>';
+  $('#tourBracket').innerHTML = T.stages.map((st) => '<div class="panel"><h2>' + esc(st.name) + '</h2>' + st.tables.map((t) =>
+    '<div class="tbl' + (t.seats.some((x) => x.i === you) ? ' mine' : '') + '"><div class="th"><b>' + esc(t.label) + '</b><span>' + (t.done ? '終了' : '対戦中…') + '</span></div>' +
+    (t.done ? t.places : t.seats.map((x) => x.i)).map((i, k) => {
+      const nm = S.seats[i].name; const w = t.done && i === t.winner;
+      return '<div class="tp' + (w ? ' win' : '') + (i === you ? ' me' : '') + '">' + (t.done ? (k + 1) + '位 ' : '') + (w ? '👑 ' : '') + esc(nm) + (i === you ? '（あなた）' : '') + (w && st.name !== '決勝' ? ' → 決勝へ' : '') + '</div>';
+    }).join('') + '</div>').join('') + '</div>').join('');
+  $('#tourAgain').style.display = champ && S.you === S.host ? '' : 'none';
+}
 function renderLobby() {
+  const tour = S.kind === 'tour';
+  $('#lbTitle').textContent = tour ? '🏆 大会ロビー' : 'ロビー';
+  $('#lbRulesH').textContent = tour ? '大会ルール（開始後も変更できません）' : 'ローカルルール';
+  $('#lbStart').textContent = tour ? '大会を開始（空席はAI）' : 'ゲーム開始（空席はAI）';
+  $('#lbSize').parentElement.style.display = tour ? 'none' : '';
   $('#lbCode').textContent = S.room;
   $('#lbSeats').innerHTML = S.seats.map((s, i) => '<div class="seat"><span>' + (s.type === 'empty' ? '<span style="opacity:.5">空席（AIが入ります）</span>' : esc(s.name)) + (i === S.you ? ' <span class="tag">（あなた）</span>' : '') + (i === S.host ? ' <span class="tag">👑ホスト</span>' : '') + '</span><span class="tag">' + (s.type === 'human' ? (s.online ? '● オンライン' : '○ 切断中') : '') + '</span></div>').join('');
   const host = S.you === S.host;
@@ -1531,11 +1613,14 @@ function renderLobby() {
   const pw = $('#lbPw'); if (document.activeElement !== pw) pw.value = S.password || '';
   const box = $('#lbRules');
   if (RULES.length && S.rules) {
-    const want = sig(S.rules) + (host ? 'e' : 'r') + starFilter;
-    if (box._sig !== want) { lobbyRules = Object.assign({}, S.rules); buildPicker(box, lobbyRules, host, lobbyChanged); }
+    const ed = host && !tour;
+    const want = sig(S.rules) + (ed ? 'e' : 'r') + starFilter;
+    if (box._sig !== want) { lobbyRules = Object.assign({}, S.rules); buildPicker(box, lobbyRules, ed, lobbyChanged); }
+    const on = RULES.filter((r) => S.rules[r.id]);
+    $('#lbRuleDesc').innerHTML = tour ? '<div class="rl" style="padding:0;margin-top:8px">' + on.map((r) => '<label class="on" style="cursor:default"><span><span class="nm">' + esc(r.name) + '</span><span class="st">' + stars(r.stars) + '</span><small>' + esc(r.desc) + '</small></span></label>').join('') + '</div>' : '';
   }
   const humansN = S.seats.filter((x) => x.type === 'human').length;
-  $('#lbInfo').textContent = S.size + '人で開始（参加' + humansN + '人 + AI' + (S.size - humansN) + '人）' + (S.locked ? ' 🔒パスワードあり' : '');
+  $('#lbInfo').textContent = S.size + '人で開始（参加' + humansN + '人 + AI' + (S.size - humansN) + '人）' + (humansN < S.size ? ' ※人数が集まらなくても、ホストが開始すると空席はAIが入ります' : '') + (S.locked ? ' 🔒パスワードあり' : '');
 }
 
 function fitHand(hand) {
@@ -1639,24 +1724,36 @@ function renderGame() {
   // 結果
   const modal = $('#resModal');
   if (g.phase === 'end' && g.results) {
-    const last = g.results.map((r) => '<div class="res' + (r.seat === you ? ' me' : '') + '"><span>' + (r.place + 1) + '位 ' + r.title + '　' + esc(S.seats[r.seat].name) + '</span><span>+' + r.add + '点</span></div>').join('');
-    const tot = S.seats.map((x, i) => ({ i, x })).sort((a, b) => b.x.score - a.x.score || b.x.wins - a.x.wins || a.i - b.i);
-    let rk = 0, prevScore = null;
-    const total = tot.map((t, idx) => {
-      if (t.x.score !== prevScore) { rk = idx + 1; prevScore = t.x.score; }
-      return '<div class="res tot' + (t.i === you ? ' me' : '') + '"><span>' + rk + '位　' + esc(t.x.name) + (t.x.type === 'human' && !t.x.online ? ' <small style="opacity:.6">(切断中)</small>' : '') + '</span><span>' + t.x.score + '点　<small style="opacity:.7">👑' + (t.x.wins || 0) + '回</small></span></div>';
-    }).join('');
-    const top = '<h2 style="margin-top:0">ラウンド ' + S.round + ' 結果</h2><h3 style="margin-top:4px">直前の結果</h3>' + last + '<h3>総合ランキング（' + S.round + 'ラウンド累計）</h3>' + total;
+    let top, btns;
+    if (S.tour) {
+      const T = S.tour, mine = g.results.find((r) => r.seat === you), won = mine && mine.place === 0;
+      const rows = g.results.map((r) => '<div class="res' + (r.seat === you ? ' me' : '') + '"><span>' + (r.place + 1) + '位 ' + r.title + '　' + esc(S.seats[r.seat].name) + '</span><span>' + (r.place === 0 ? '👑' : '') + '</span></div>').join('');
+      const msg = T.final ? (T.champion ? (won ? '🏆 優勝おめでとう！' : '🏆 優勝は ' + esc(T.champion) + ' さん') : '') : (won ? '🎉 勝ち抜け！ 決勝に進みます（まもなく自動で移動します）' : '残念、敗退です。対戦表で大会の様子を見られます。');
+      top = '<h2 style="margin-top:0">' + esc(T.label) + ' 結果</h2>' + rows + '<div class="waitnote">' + msg + '</div>';
+      btns = '<div class="row"><button onclick="switchRoom(S.tour.parent)">大会の対戦表を見る</button><button class="sub" onclick="leave()">退出</button></div>';
+    } else {
+      const last = g.results.map((r) => '<div class="res' + (r.seat === you ? ' me' : '') + '"><span>' + (r.place + 1) + '位 ' + r.title + '　' + esc(S.seats[r.seat].name) + '</span><span>+' + r.add + '点</span></div>').join('');
+      const tot = S.seats.map((x, i) => ({ i, x })).sort((a, b) => b.x.score - a.x.score || b.x.wins - a.x.wins || a.i - b.i);
+      let rk = 0, prevScore = null;
+      const total = tot.map((t, idx) => {
+        if (t.x.score !== prevScore) { rk = idx + 1; prevScore = t.x.score; }
+        return '<div class="res tot' + (t.i === you ? ' me' : '') + '"><span>' + rk + '位　' + esc(t.x.name) + (t.x.type === 'human' && !t.x.online ? ' <small style="opacity:.6">(切断中)</small>' : '') + '</span><span>' + t.x.score + '点　<small style="opacity:.7">👑' + (t.x.wins || 0) + '回</small></span></div>';
+      }).join('');
+      const nOn = Object.values(S.rules || {}).filter(Boolean).length;
+      top = '<h2 style="margin-top:0">ラウンド ' + S.round + ' 結果</h2><h3 style="margin-top:4px">直前の結果</h3>' + last + '<h3>総合ランキング（' + S.round + 'ラウンド累計）</h3>' + total +
+        '<div class="waitnote">この部屋：' + S.size + '人 ／ AIの強さ：' + ({ easy: 'よわい', normal: 'ふつう', hard: 'つよい' }[S.level] || '') + ' ／ ローカルルール ' + nOn + '個</div>';
+      const iReady = (g.ready || []).includes(you);
+      const names = (g.waiting || []).map((i) => esc(S.seats[i].name)).join('、');
+      btns = '<div class="waitnote">' + (g.waiting && g.waiting.length ? (iReady ? '✅ 準備OK！ ほかの人を待っています：' : '全員が「次へ」を押すと始まります。待ち：') + names : '全員そろいました') + '</div>' +
+        '<div class="row"><button id="nextBtn"' + (iReady ? ' disabled' : '') + ' onclick="act(\\'next\\')">' + (iReady ? '準備OK（待機中）' : '次のラウンドを始める') + '</button>' +
+        '<button class="sub" onclick="showRules()">ルール確認</button>' +
+        (S.you === S.host ? '<button class="sub" onclick="openSet()">人数・ルール変更</button><button class="sub" onclick="act(\\'lobby\\')">ロビーに戻る</button>' : '') +
+        '<button class="sub" onclick="leave()">退出</button></div>';
+    }
     if (resCache.top !== top) { $('#resTop').innerHTML = top; resCache.top = top; }
-    const iReady = (g.ready || []).includes(you);
-    const names = (g.waiting || []).map((i) => esc(S.seats[i].name)).join('、');
-    const btns = '<div class="waitnote">' + (g.waiting && g.waiting.length ? (iReady ? '✅ 準備OK！ ほかの人を待っています：' : '全員が「次へ」を押すと始まります。待ち：') + names : '全員そろいました') + '</div>' +
-      '<div class="row"><button id="nextBtn"' + (iReady ? ' disabled' : '') + ' onclick="act(\\'next\\')">' + (iReady ? '準備OK（待機中）' : '次のラウンドを始める') + '</button>' +
-      (S.you === S.host ? '<button class="sub" onclick="act(\\'lobby\\')">ロビーに戻る</button>' : '') +
-      '<button class="sub" onclick="leave()">退出</button></div>';
     if (resCache.btns !== btns) { $('#resBtns').innerHTML = btns; resCache.btns = btns; }
     if (!modal.classList.contains('on')) { modal.classList.add('on'); renderChat(); }
-  } else { modal.classList.remove('on'); resCache.top = resCache.btns = ''; }
+  } else { modal.classList.remove('on'); $('#setModal').classList.remove('on'); resCache.top = resCache.btns = ''; }
 }
 window.addEventListener('resize', () => { if (S && S.game && S.phase !== 'lobby') fitHand($('#hand')); });
 setInterval(() => {
@@ -1695,7 +1792,8 @@ const PORT = process.env.PORT || 3000;
 
 const MIN_PLAYERS = 3;
 const MAX_PLAYERS = 10;
-const AI_NAMES = ['タロウ', 'ハナコ', 'ケンタ', 'ミユ', 'ソウタ', 'アカリ', 'ダイスケ', 'サクラ', 'リク', 'ナナミ'];
+const AI_NAMES = ['タロウ', 'ハナコ', 'ケンタ', 'ミユ', 'ソウタ', 'アカリ', 'ダイスケ', 'サクラ', 'リク', 'ナナミ', 'ユウト', 'アオイ', 'ヒロ', 'メイ', 'ハルト', 'コトネ'];
+const TOUR_SIZE = 16, TOUR_TABLE = 4;
 function titlesFor(n) {
   const t = [];
   for (let i = 0; i < n; i++) {
@@ -1709,7 +1807,7 @@ function titlesFor(n) {
 }
 const clampSize = (n) => Math.max(MIN_PLAYERS, Math.min(MAX_PLAYERS, parseInt(n, 10) || 4));
 const cleanPw = (p) => String(p == null ? '' : p).normalize('NFKC').trim().slice(0, 20); // 日本語など何でもOK
-const normCode = (c) => String(c == null ? '' : c).normalize('NFKC').replace(/[<>\s]/g, '').toUpperCase().slice(0, 12);
+const normCode = (c) => String(c == null ? '' : c).normalize('NFKC').replace(/[<>\s]/g, '').toUpperCase().slice(0, 30);
 const getRoom = (c) => rooms.get(normCode(c));
 const TURN_MS = 45000;
 const AI_DELAY = Number(process.env.AI_DELAY_MS || 800); // AIの思考待ち(ms)。テスト時は短くできる
@@ -1729,14 +1827,14 @@ function newCode() {
 const cleanName = (n) => String(n || '').replace(/[<>\n\r]/g, '').trim().slice(0, 12) || 'ゲスト';
 const emptySeat = () => ({ type: 'empty', name: '', token: null, conn: 0, lastSeen: 0 });
 
-function createRoom(name, pub, level, size, password, rules, customCode) {
-  size = clampSize(size);
+function createRoom(name, pub, level, size, password, rules, customCode, kind) {
+  size = kind === 'tour' ? TOUR_SIZE : clampSize(size);
   const code = customCode || newCode();
   const room = {
     code, pub: !!pub, password: cleanPw(password), rules: G.normRules(rules), maintained: false, phase: 'lobby', host: 0, level: LEVELS.includes(level) ? level : 'normal',
     seats: Array.from({ length: size }, emptySeat), scores: Array(size).fill(0), wins: Array(size).fill(0), round: 0, ready: new Set(),
     chat: [], chatSeq: 0, g: null, clients: new Set(), timer: null, deadline: null, lastResults: null, scored: false,
-    updated: Date.now(),
+    updated: Date.now(), kind: kind || 'normal', stages: [], stage: 0, champion: -1, children: [], stageTimer: null,
   };
   rooms.set(code, room);
   const token = seatHuman(room, 0, name);
@@ -1752,7 +1850,7 @@ const humans = (room) => room.seats.filter((s) => s.type === 'human').length;
 function isBot(room, i) {
   const s = room.seats[i];
   if (s.type === 'ai') return true;
-  return s.type === 'human' && s.conn === 0 && Date.now() - s.lastSeen > 3000;
+  return s.type === 'human' && s.conn === 0 && Date.now() - s.lastSeen > (room.tour ? 12000 : 3000);
 }
 
 function fillAI(room) {
@@ -1770,12 +1868,16 @@ function fillAI(room) {
 function view(room, seat) {
   const g = room.g;
   const v = {
-    room: room.code, phase: room.phase, you: seat, host: room.host, level: room.level, round: room.round, pub: room.pub, locked: !!room.password, size: room.seats.length, rules: room.rules,
+    room: room.code, phase: room.phase, you: seat, host: room.host, level: room.level, round: room.round, pub: room.pub, locked: !!room.password, size: room.seats.length, rules: room.rules, kind: room.kind,
     password: seat === room.host ? room.password : undefined,
     seats: room.seats.map((s, i) => ({ type: s.type, name: s.name, online: s.type === 'ai' || s.conn > 0, score: room.scores[i], wins: room.wins[i] || 0 })),
     titles: titlesFor(room.seats.length),
   };
-  if (room.phase === 'game' && g) {
+  if (room.kind === 'tour') v.tour = tourView(room, seat);
+  else if (room.tour) v.tour = childTourView(room, seat);
+  if (room.phase === 'game' && g && g.stale) {
+    v.game = staleGame(room, g);
+  } else if (room.phase === 'game' && g) {
     const gv = {
       phase: g.phase, turn: g.turn, rev: g.rev, lock: g.lock, counts: g.hands.map((h) => h.length),
       passed: g.passedFlags, places: g.places, leader: g.leaderSeat, lastPlayer: g.lastPlayer,
@@ -1806,6 +1908,113 @@ function view(room, seat) {
   }
   return v;
 }
+// 人数変更・途中参加で席番号が変わった後の、結果画面用の簡易ビュー
+function staleGame(room, g) {
+  const n = room.seats.length;
+  return {
+    phase: 'end', turn: -1, rev: false, lock: null, counts: Array(n).fill(0), passed: Array(n).fill(false), places: g.places, leader: -1, lastPlayer: -1,
+    field: null, order: Array.from({ length: n }, (_, i) => i), dir: 1, effRev: false, jb: false, arthur: false, omen: false, noRev: false, lockAny: false, lockSeq: false, mustD3: false,
+    events: [], evSeq: g.evSeq, cut8: false, hand: [], log: g.log.slice(-10),
+    results: room.lastResults, ready: [...room.ready], waiting: waitingSeats(room), canJoin: joinableSeat(room) != null,
+  };
+}
+// ---- 大会 ----
+const TABLE_NAMES = ['A卓', 'B卓', 'C卓', 'D卓'];
+function goFor(P, pseat) {
+  const st = P.stages[P.stages.length - 1];
+  if (!st) return null;
+  const t = st.tables.find((x) => !x.done && x.pseats.includes(pseat));
+  return t ? t.code : null;
+}
+function tourView(P, seat) {
+  return {
+    stage: P.stage, champion: P.champion, go: goFor(P, seat),
+    stages: P.stages.map((st) => ({
+      name: st.name,
+      tables: st.tables.map((t) => ({
+        code: t.code, label: t.label, done: t.done, winner: t.winner, places: t.places,
+        seats: t.pseats.map((i) => ({ i, name: P.seats[i].name, human: P.seats[i].type === 'human' })),
+      })),
+    })),
+  };
+}
+function childTourView(room, seat) {
+  const P = rooms.get(room.tour.parent);
+  const pseat = room.tour.pseats[seat];
+  let go = null;
+  if (P) { go = goFor(P, pseat); if (go === room.code) go = null; }
+  return { parent: room.tour.parent, label: room.tour.label, stage: room.tour.stage, final: room.tour.stage === 2, go, champion: P && P.champion >= 0 ? P.seats[P.champion].name : null };
+}
+function makeTable(P, stage, idx, pseats, label) {
+  const code = P.code + '-' + stage + (idx + 1);
+  const child = {
+    code, pub: false, password: '', rules: P.rules, maintained: false, phase: 'lobby', host: 0, level: P.level, kind: 'table',
+    seats: pseats.map((ps) => {
+      const s = P.seats[ps];
+      return s.type === 'human' ? { type: 'human', name: s.name, token: s.token, conn: 0, lastSeen: Date.now() } : { type: 'ai', name: s.name, token: null, conn: 0, lastSeen: 0 };
+    }),
+    scores: Array(TOUR_TABLE).fill(0), wins: Array(TOUR_TABLE).fill(0), round: 0, ready: new Set(),
+    chat: [], chatSeq: 0, g: null, clients: new Set(), timer: null, deadline: null, lastResults: null, scored: false, updated: Date.now(),
+    stages: [], stage: 0, champion: -1, children: [], stageTimer: null,
+    tour: { parent: P.code, stage, table: idx, pseats, label },
+  };
+  child.host = Math.max(0, child.seats.findIndex((x) => x.type === 'human'));
+  rooms.set(code, child);
+  P.children.push(code);
+  startRound(child, null);
+  return { code, label, pseats, done: false, winner: -1, places: [] };
+}
+function startTournament(P) {
+  fillAI(P);
+  const order = P.seats.map((_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1); [order[i], order[j]] = [order[j], order[i]]; }
+  P.phase = 'tour'; P.stages = []; P.champion = -1; P.children = [];
+  const tables = [];
+  for (let t = 0; t < TOUR_SIZE / TOUR_TABLE; t++) tables.push(makeTable(P, 1, t, order.slice(t * TOUR_TABLE, (t + 1) * TOUR_TABLE), TABLE_NAMES[t]));
+  P.stages.push({ name: '1回戦', tables });
+  P.stage = 1;
+  addChat(P, -1, '大会スタート！ 各卓の大富豪が決勝に進みます', true);
+  broadcast(P);
+}
+function startFinal(P) {
+  const winners = P.stages[0].tables.map((t) => t.winner);
+  const t = makeTable(P, 2, 0, winners, '決勝卓');
+  P.stages.push({ name: '決勝', tables: [t] });
+  P.stage = 2;
+  addChat(P, -1, '決勝スタート！ ' + winners.map((i) => P.seats[i].name).join('、'), true);
+  broadcast(P);
+  for (const c of P.children) { const r = rooms.get(c); if (r) broadcast(r); }
+}
+function tourTableDone(child) {
+  const P = rooms.get(child.tour.parent);
+  if (!P) return;
+  const st = P.stages[child.tour.stage - 1];
+  const t = st && st.tables[child.tour.table];
+  if (!t || t.done) return;
+  t.done = true;
+  t.places = child.g.places.map((l) => child.tour.pseats[l]);
+  t.winner = t.places[0];
+  addChat(P, -1, t.label + ' 終了：大富豪は ' + P.seats[t.winner].name, true);
+  if (st.tables.every((x) => x.done)) {
+    if (child.tour.stage === 2) {
+      P.champion = t.winner;
+      addChat(P, -1, '🏆 優勝は ' + P.seats[t.winner].name + ' さん！', true);
+    } else {
+      addChat(P, -1, '1回戦が終了。まもなく決勝です', true);
+      clearTimeout(P.stageTimer);
+      P.stageTimer = setTimeout(() => startFinal(P), 6000);
+    }
+  }
+  broadcast(P);
+  for (const c of P.children) { const r = rooms.get(c); if (r) broadcast(r); }
+}
+function resetTour(P) {
+  clearTimeout(P.stageTimer);
+  P.children = []; P.stages = []; P.stage = 0; P.champion = -1; P.phase = 'lobby'; P.round = 0;
+  P.seats = P.seats.map((x) => (x.type === 'ai' ? emptySeat() : x));
+  if (P.seats[P.host].type !== 'human') { const h = P.seats.findIndex((x) => x.type === 'human'); if (h >= 0) P.host = h; }
+}
+
 // ---- チャット ----
 const CHAT_MAX = 200;
 function chatWrite(client, m) {
@@ -1827,6 +2036,7 @@ function send(client, room) {
 }
 function broadcast(room) {
   room.updated = Date.now();
+  if (room.tour) { const P = rooms.get(room.tour.parent); if (P) P.updated = Date.now(); }
   for (const c of room.clients) send(c, room);
 }
 
@@ -1855,6 +2065,7 @@ function finishIfEnd(room) {
       room.scores[seat] += add;
       return { seat, place: p, title: titles[p], add };
     });
+    if (room.tour) tourTableDone(room);
   }
 }
 function afterMove(room) {
@@ -1932,6 +2143,8 @@ function prevPlacesFor(room) {
 }
 // 結果画面での途中参加: 空席 → AI席の順に探す。なければ10人まで席を増やす
 function joinableSeat(room) {
+  if (room.tour) return null;
+  if (room.kind === 'tour' && room.phase !== 'lobby') return null;
   if (room.phase === 'lobby') { const i = room.seats.findIndex((s) => s.type === 'empty'); return i < 0 ? null : i; }
   if (room.phase === 'game' && room.g && room.g.phase === 'end') {
     const e = room.seats.findIndex((s) => s.type === 'empty');
@@ -1946,12 +2159,45 @@ function joinableSeat(room) {
 function seatNewcomer(room, name) {
   let i = joinableSeat(room);
   if (i == null) return null;
-  if (i >= room.seats.length) { room.seats.push(emptySeat()); room.scores.push(0); room.wins.push(0); }
+  if (i >= room.seats.length) { room.seats.push(emptySeat()); room.scores.push(0); room.wins.push(0); if (room.g) room.g.stale = true; }
   const token = seatHuman(room, i, name);
   if (room.phase === 'game') { room.scores[i] = 0; room.wins[i] = 0; room.ready.delete(i); }
   addChat(room, -1, room.seats[i].name + ' が参加しました', true);
   broadcast(room);
   return { token, seat: i };
+}
+
+function inBetween(room) { return room.phase === 'game' && !!room.g && room.g.phase === 'end' && !room.tour && room.kind !== 'tour'; }
+// 結果画面での人数変更: 減らすときはAI席から消し、増やすときはAI席を足す
+function resizeBetween(room, n) {
+  const old = room.seats.length;
+  if (n === old) return null;
+  let keep = room.seats.map((_, i) => i);
+  if (n < old) {
+    let need = old - n;
+    const rem = new Set();
+    for (let i = old - 1; i >= 0 && need > 0; i--) if (room.seats[i].type !== 'human') { rem.add(i); need--; }
+    if (need > 0) return '人間のプレイヤーが多いので、その人数には減らせません';
+    keep = keep.filter((i) => !rem.has(i));
+  }
+  const map = new Map(keep.map((o, ni) => [o, ni]));
+  const seats = keep.map((i) => room.seats[i]);
+  const scores = keep.map((i) => room.scores[i]);
+  const wins = keep.map((i) => room.wins[i] || 0);
+  while (seats.length < n) { seats.push(emptySeat()); scores.push(0); wins.push(0); }
+  room.seats = seats; room.scores = scores; room.wins = wins;
+  fillAI(room);
+  room.host = map.has(room.host) ? map.get(room.host) : 0;
+  const g = room.g;
+  g.places = g.places.filter((x) => map.has(x)).map((x) => map.get(x));
+  g.stale = true;
+  if (room.lastResults) room.lastResults = room.lastResults.filter((r) => map.has(r.seat)).map((r) => Object.assign({}, r, { seat: map.get(r.seat), place: g.places.indexOf(map.get(r.seat)) })).sort((a, b) => a.place - b.place);
+  room.ready = new Set([...room.ready].filter((x) => map.has(x)).map((x) => map.get(x)));
+  for (const c of room.clients) if (map.has(c.seat)) c.seat = map.get(c.seat);
+  room.ready = new Set();
+  addChat(room, -1, 'ホストが人数を ' + n + '人 に変更しました。もう一度「次へ」を押してください', true);
+  broadcast(room);
+  return null;
 }
 
 function startGame(room) {
@@ -1986,12 +2232,22 @@ function leaveSeat(room, seat) {
   } else {
     room.seats[seat] = { type: 'ai', name: s.name + '(代打)', token: null, conn: 0, lastSeen: 0 };
   }
-  if (humans(room) === 0) {
+  if (room.tour) {
+    const P = rooms.get(room.tour.parent);
+    const ps = room.tour.pseats[seat];
+    if (P && P.seats[ps] && P.seats[ps].type === 'human') {
+      addChat(P, -1, P.seats[ps].name + ' が退出しました', true);
+      P.seats[ps] = { type: 'ai', name: P.seats[ps].name + '(代打)', token: null, conn: 0, lastSeen: 0 };
+      if (P.host === ps) P.host = Math.max(0, P.seats.findIndex((x) => x.type === 'human'));
+      broadcast(P);
+    }
+  }
+  if (humans(room) === 0 && !room.tour && !(room.kind === 'tour' && room.phase !== 'lobby')) {
     clearTimeout(room.timer);
     rooms.delete(room.code);
     return;
   }
-  if (room.host === seat) room.host = room.seats.findIndex((x) => x.type === 'human');
+  if (room.host === seat) room.host = Math.max(0, room.seats.findIndex((x) => x.type === 'human'));
   room.ready.delete(seat);
   if (room.phase === 'game') schedule(room);
   broadcast(room);
@@ -2019,7 +2275,7 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && p === '/api/rooms') {
     const list = [...rooms.values()]
       .filter((r) => r.pub && joinableSeat(r) != null)
-      .map((r) => ({ code: r.code, host: r.seats[r.host].name, players: humans(r), size: r.seats.length, locked: !!r.password, status: r.phase === 'lobby' ? 'lobby' : 'between', round: r.round }));
+      .map((r) => ({ code: r.code, host: r.seats[r.host].name, players: humans(r), size: r.seats.length, locked: !!r.password, status: r.phase === 'lobby' ? 'lobby' : 'between', round: r.round, kind: r.kind }));
     return json(res, 200, list);
   }
   if (req.method === 'GET' && p === '/api/events') {
@@ -2032,7 +2288,7 @@ async function handleApi(req, res, url) {
       Connection: 'keep-alive', 'X-Accel-Buffering': 'no',
     });
     res.write('retry: 2000\n\n');
-    const client = { res, seat };
+    const client = { res, seat, token };
     room.clients.add(client);
     const s = room.seats[seat];
     s.conn++;
@@ -2054,28 +2310,31 @@ async function handleApi(req, res, url) {
   try { body = await readJson(req); } catch (e) { return json(res, 400, { error: '不正なリクエスト' }); }
 
   if (p === '/api/create') {
-    const online = body.mode === 'online';
+    const isTour = body.mode === 'tour';
+    const online = body.mode === 'online' || isTour;
     let custom = '';
     if (online && body.code) {
-      custom = normCode(body.code);
+      custom = normCode(body.code).slice(0, 12);
       if (custom.length < 2) return json(res, 400, { error: '部屋名は2文字以上にしてください' });
       if (rooms.has(custom)) return json(res, 400, { error: 'その部屋名はすでに使われています' });
     }
-    const { room, token } = createRoom(body.name, online && body.pub, body.level, body.size, online ? body.password : '', body.rules, custom);
+    const { room, token } = createRoom(body.name, online && body.pub, body.level, body.size, online ? body.password : '', body.rules, custom, isTour ? 'tour' : 'normal');
     if (body.mode === 'ai') startGame(room);
     return json(res, 200, { room: room.code, token, seat: 0 });
   }
   if (p === '/api/join') {
     const room = getRoom(body.room);
     if (!room) return json(res, 404, { error: '部屋が見つかりません' });
+    if (room.tour) return json(res, 400, { error: '大会の卓には直接入れません' });
     if (room.password && cleanPw(body.password) !== room.password) return json(res, 403, { error: 'パスワードが違います' });
+    if (room.kind === 'tour' && room.phase !== 'lobby') return json(res, 400, { error: '大会はすでに始まっています（途中参加はできません）' });
     if (room.phase !== 'lobby' && !(room.g && room.g.phase === 'end')) return json(res, 400, { error: 'ゲーム中です。ラウンドの結果画面になると参加できます' });
     const r = seatNewcomer(room, body.name);
     if (!r) return json(res, 400, { error: '満席です' });
     return json(res, 200, { room: room.code, token: r.token, seat: r.seat });
   }
   if (p === '/api/quick') {
-    const room = [...rooms.values()].find((r) => r.pub && !r.password && joinableSeat(r) != null);
+    const room = [...rooms.values()].find((r) => r.pub && !r.password && r.kind !== 'tour' && joinableSeat(r) != null);
     if (room) {
       const r = seatNewcomer(room, body.name);
       if (r) return json(res, 200, { room: room.code, token: r.token, seat: r.seat });
@@ -2092,15 +2351,19 @@ async function handleApi(req, res, url) {
     const g = room.g;
     switch (body.type) {
       case 'level':
-        if (seat !== room.host || room.phase !== 'lobby') return json(res, 403, { error: 'ホストのみ変更できます' });
+        if (room.tour) return json(res, 403, { error: '大会の卓では変更できません' });
+        if (seat !== room.host || !(room.phase === 'lobby' || inBetween(room))) return json(res, 403, { error: 'ホストのみ・ロビーか結果画面でのみ変更できます' });
         if (LEVELS.includes(body.level)) room.level = body.level;
         broadcast(room);
         return json(res, 200, { ok: true });
-      case 'rules':
-        if (seat !== room.host || room.phase !== 'lobby') return json(res, 403, { error: 'ホストのみ・ロビーでのみ変更できます' });
+      case 'rules': {
+        if (room.kind === 'tour' || room.tour) return json(res, 403, { error: '大会ではルールを変更できません' });
+        if (seat !== room.host || !(room.phase === 'lobby' || inBetween(room))) return json(res, 403, { error: 'ホストのみ・ロビーか結果画面でのみ変更できます' });
         room.rules = G.normRules(body.rules);
+        if (room.phase === 'game') { room.ready = new Set(); addChat(room, -1, 'ホストがルールを変更しました（次のラウンドから）。もう一度「次へ」を押してください', true); }
         broadcast(room);
         return json(res, 200, { ok: true });
+      }
       case 'chat': {
         const text = cleanChat(body.text);
         if (!text) return json(res, 400, { error: 'メッセージを入力してください' });
@@ -2118,6 +2381,12 @@ async function handleApi(req, res, url) {
         broadcast(room);
         return json(res, 200, { ok: true });
       case 'size': {
+        if (room.kind === 'tour' || room.tour) return json(res, 403, { error: '大会では人数を変更できません' });
+        if (seat === room.host && inBetween(room)) {
+          const err = resizeBetween(room, clampSize(body.size));
+          if (err) return json(res, 400, { error: err });
+          return json(res, 200, { ok: true });
+        }
         if (seat !== room.host || room.phase !== 'lobby') return json(res, 403, { error: 'ホストのみ変更できます' });
         const n = clampSize(body.size);
         let maxUsed = -1;
@@ -2133,6 +2402,7 @@ async function handleApi(req, res, url) {
       case 'start':
         if (seat !== room.host) return json(res, 403, { error: 'ホストのみ開始できます' });
         if (room.phase !== 'lobby') return json(res, 400, { error: 'すでに開始しています' });
+        if (room.kind === 'tour') { startTournament(room); return json(res, 200, { ok: true }); }
         startGame(room);
         return json(res, 200, { ok: true });
       case 'play': case 'pass': case 'give': {
@@ -2146,12 +2416,21 @@ async function handleApi(req, res, url) {
         return json(res, 200, { ok: true });
       }
       case 'next':
+        if (room.tour) return json(res, 400, { error: '大会では自動で進みます' });
         if (room.phase !== 'game' || !g || g.phase !== 'end') return json(res, 400, { error: '結果表示中ではありません' });
         room.ready.add(seat);
         if (!checkReady(room)) broadcast(room);
         return json(res, 200, { ok: true });
       case 'lobby':
         if (seat !== room.host) return json(res, 403, { error: 'ホストのみ操作できます' });
+        if (room.tour) return json(res, 400, { error: '大会の卓ではできません' });
+        if (room.kind === 'tour') {
+          if (room.champion < 0) return json(res, 400, { error: '大会の途中です' });
+          resetTour(room);
+          addChat(room, -1, 'ホストが大会ロビーに戻しました', true);
+          broadcast(room);
+          return json(res, 200, { ok: true });
+        }
         toLobby(room);
         broadcast(room);
         return json(res, 200, { ok: true });
@@ -2187,7 +2466,7 @@ setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
     if (room.clients.size === 0 && now - room.updated > 30 * 60 * 1000) {
-      clearTimeout(room.timer);
+      clearTimeout(room.timer); clearTimeout(room.stageTimer);
       rooms.delete(code);
     }
   }
