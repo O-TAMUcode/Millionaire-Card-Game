@@ -110,12 +110,15 @@ const UNSUPPORTED = ['税収', 'ダミアン', '7付け', '宗教革命', '融�
 const effRev = (g) => g.rev !== !!g.jb;
 
 // ---- 基本ユーティリティ -------------------------------------------------
-function makeDeck() {
+function makeDeck(sets) {
   const d = [];
   let id = 0;
-  for (const s of SUITS) for (let r = 3; r <= 15; r++) d.push({ id: id++, s, r });
-  d.push({ id: id++, s: 'X', r: 16 });
-  d.push({ id: id++, s: 'X', r: 16 });
+  const k = Math.max(1, Math.min(5, Math.floor(sets) || 1));
+  for (let t = 0; t < k; t++) {
+    for (const s of SUITS) for (let r = 3; r <= 15; r++) d.push({ id: id++, s, r });
+    d.push({ id: id++, s: 'X', r: 16 });
+    d.push({ id: id++, s: 'X', r: 16 });
+  }
   return d;
 }
 function shuffle(a) {
@@ -282,11 +285,16 @@ function candidates(hand, R) {
   nat.forEach((c) => (byRank[c.r] = byRank[c.r] || []).push(c));
   for (const r of Object.keys(byRank)) {
     const arr = byRank[r];
-    for (let k = 1; k <= arr.length; k++) {
-      for (const cs of combos(arr, k)) {
-        for (let j = 0; j <= jokers.length; j++) out.push(cs.concat(jokers.slice(0, j)));
+    // 同じマーク・同じ数字の札は区別しない（複数セットでも候補が爆発しないように）
+    const bySuit = SUITS.map((su) => arr.filter((c) => c.s === su));
+    (function rec(i, cur) {
+      if (i === bySuit.length) {
+        if (!cur.length) return;
+        for (let j = 0; j <= jokers.length; j++) out.push(cur.concat(jokers.slice(0, j)));
+        return;
       }
-    }
+      for (let m = 0; m <= bySuit[i].length; m++) rec(i + 1, cur.concat(bySuit[i].slice(0, m)));
+    })(0, []);
   }
   for (let j = 1; j <= jokers.length; j++) out.push(jokers.slice(0, j));
   const steps = [];
@@ -359,7 +367,7 @@ function drawDiscard(g, k, strongest) {
 function newRound(prevPlaces, n, rules, ctx) {
   n = n || 4;
   const R = normRules(rules);
-  const deck = shuffle(makeDeck());
+  const deck = shuffle(makeDeck(ctx && ctx.decks));
   const hands = Array.from({ length: n }, () => []);
   deck.forEach((c, i) => hands[i % n].push(c));
   const g = {
@@ -377,7 +385,7 @@ function newRound(prevPlaces, n, rules, ctx) {
   if (R.monopoly) {
     for (let s = 0; s < n; s++) {
       for (const su of SUITS) {
-        if (hands[s].filter((c) => c.s === su).length === 13) {
+        if (new Set(hands[s].filter((c) => c.s === su).map((c) => c.r)).size === 13) {
           pushLog(g, s, 'モノポリー！ ' + SYM[su] + 'を全部そろえた');
           ev(g, 'win', 'モノポリー！', s);
           instantWin(g, s);
@@ -1121,6 +1129,7 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
     <div class="row">
       <select id="aiLevel"><option value="easy">よわい</option><option value="normal" selected>ふつう</option><option value="hard">つよい</option></select>
       <label>人数（自分を含む） <select id="aiSize"></select></label>
+      <label>カード <select id="aiDecks"><option value="1" selected>1セット</option><option value="2">2セット</option><option value="3">3セット</option><option value="4">4セット</option><option value="5">5セット</option></select></label>
       <button onclick="startAI()">対戦スタート</button>
     </div>
   </div>
@@ -1132,13 +1141,13 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
   <div class="panel">
     <h2>🏆 大会モード（16人・4人一組）</h2>
     <div style="font-size:13px;line-height:1.6;opacity:.9;margin-bottom:10px">1回戦は4人ずつの4卓で対戦。<b>各卓の大富豪</b>が決勝（4人）に進み、<b>決勝の大富豪が優勝</b>です。空席はAIが入ります。開始後は、途中参加・人数・ルールの変更はできません。大会のルールは、下の「ローカルルール」で選んだものになります。</div>
-    <div class="row" style="margin-bottom:10px"><label>AIの強さ <select id="tourLevel"><option value="easy">よわい</option><option value="normal" selected>ふつう</option><option value="hard">つよい</option></select></label></div>
+    <div class="row" style="margin-bottom:10px"><label>カード <select id="tourDecks"><option value="1" selected>1セット</option><option value="2">2セット</option><option value="3">3セット</option><option value="4">4セット</option><option value="5">5セット</option></select></label><label>AIの強さ <select id="tourLevel"><option value="easy">よわい</option><option value="normal" selected>ふつう</option><option value="hard">つよい</option></select></label></div>
     <div class="row"><button onclick="createTour(true)">公開の大会を開く</button><button class="sub" onclick="createTour(false)">合言葉制の大会を開く</button></div>
     <div style="font-size:12px;opacity:.7;margin-top:6px">16人に満たないときは、空席をAIが埋めます（人が少なくても開始できます）。パスワード・部屋名は、この下の「オンライン対戦」欄の入力を使います。</div>
   </div>
   <div class="panel">
     <h2>オンライン対戦</h2>
-    <div class="row" style="margin-bottom:10px"><label>人数（最大10人） <select id="olSize"></select></label><label>AIの強さ <select id="olLevel"><option value="easy">よわい</option><option value="normal" selected>ふつう</option><option value="hard">つよい</option></select></label><input id="olPw" maxlength="20" placeholder="パスワード（任意・日本語もOK）"></div>
+    <div class="row" style="margin-bottom:10px"><label>人数（最大10人） <select id="olSize"></select></label><label>カード <select id="olDecks"><option value="1" selected>1セット</option><option value="2">2セット</option><option value="3">3セット</option><option value="4">4セット</option><option value="5">5セット</option></select></label><label>AIの強さ <select id="olLevel"><option value="easy">よわい</option><option value="normal" selected>ふつう</option><option value="hard">つよい</option></select></label><input id="olPw" maxlength="20" placeholder="パスワード（任意・日本語もOK）"></div>
     <div class="row" style="margin-bottom:10px"><input id="olCode" maxlength="12" placeholder="部屋名（任意・日本語もOK／空欄なら自動）" style="flex:1"></div>
     <div class="row" style="margin-bottom:10px">
       <button onclick="quick()">クイックマッチ</button>
@@ -1173,6 +1182,7 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
     <h2>ホスト設定</h2>
     <div class="row" style="margin-bottom:8px"><label>人数 <select id="lbSize" onchange="act('size',{size:+this.value})"></select></label><input id="lbPw" maxlength="20" placeholder="パスワード（空欄でなし）"><button class="sub" onclick="setPw()">設定</button></div>
     <div class="row">
+      <label>カード <select id="lbDecks" onchange="act('decks',{decks:+this.value})"><option value="1" selected>1セット</option><option value="2">2セット</option><option value="3">3セット</option><option value="4">4セット</option><option value="5">5セット</option></select></label>
       <label>AIの強さ <select id="lbLevel" onchange="act('level',{level:this.value})"><option value="easy">よわい</option><option value="normal">ふつう</option><option value="hard">つよい</option></select></label>
       <button id="lbStart" onclick="act('start')">ゲーム開始（空席はAI）</button>
     </div>
@@ -1254,7 +1264,7 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
 <div class="modal" id="setModal" style="z-index:32"><div class="box">
   <h2 style="margin-top:0">人数・ルールの変更</h2>
   <div class="hint" style="margin-bottom:8px">変更は次のラウンドから。変更すると、全員がもう一度「次へ」を押す必要があります。</div>
-  <div class="row" style="margin-bottom:10px"><label>人数 <select id="setSize" onchange="changeSize(this)"></select></label><label>AIの強さ <select id="setLevel" onchange="act('level',{level:this.value})"><option value="easy">よわい</option><option value="normal">ふつう</option><option value="hard">つよい</option></select></label></div>
+  <div class="row" style="margin-bottom:10px"><label>人数 <select id="setSize" onchange="changeSize(this)"></select></label><label>カード <select id="setDecks" onchange="act('decks',{decks:+this.value})"><option value="1" selected>1セット</option><option value="2">2セット</option><option value="3">3セット</option><option value="4">4セット</option><option value="5">5セット</option></select></label><label>AIの強さ <select id="setLevel" onchange="act('level',{level:this.value})"><option value="easy">よわい</option><option value="normal">ふつう</option><option value="hard">つよい</option></select></label></div>
   <div id="setRules"></div>
   <div style="margin-top:12px"><button onclick="closeSet()">閉じる</button></div>
 </div></div>
@@ -1381,9 +1391,9 @@ function initRules(j) {
 // ---- 作成/参加 ----
 function enter(j) { sess = { room: j.room, token: j.token }; try { sessionStorage.setItem('dfg', JSON.stringify(sess)); } catch (e) {} history.replaceState(null, '', '?room=' + encodeURIComponent(j.room)); lastEv = null; resetChat(); connect(); }
 const rulePayload = () => ({ rules: homeRules });
-async function startAI() { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'ai', level: $('#aiLevel').value, size: +$('#aiSize').value }, rulePayload())); if (j) enter(j); }
-async function createOnline(pub) { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'online', pub, level: $('#olLevel').value, size: +$('#olSize').value, password: $('#olPw').value, code: $('#olCode').value }, rulePayload())); if (j) enter(j); }
-async function createTour(pub) { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'tour', pub, level: $('#tourLevel').value, password: $('#olPw').value, code: $('#olCode').value }, rulePayload())); if (j) enter(j); }
+async function startAI() { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'ai', decks: +$('#aiDecks').value, level: $('#aiLevel').value, size: +$('#aiSize').value }, rulePayload())); if (j) enter(j); }
+async function createOnline(pub) { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'online', pub, decks: +$('#olDecks').value, level: $('#olLevel').value, size: +$('#olSize').value, password: $('#olPw').value, code: $('#olCode').value }, rulePayload())); if (j) enter(j); }
+async function createTour(pub) { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'tour', pub, decks: +$('#tourDecks').value, level: $('#tourLevel').value, password: $('#olPw').value, code: $('#olCode').value }, rulePayload())); if (j) enter(j); }
 async function quick() { const j = await api('/api/quick', { name: myName() }); if (j) enter(j); }
 async function joinRoom() { const j = await api('/api/join', { name: myName(), room: $('#joinCode').value.trim(), password: $('#joinPw').value }); if (j) enter(j); }
 // ---- 公開部屋の募集一覧 ----
@@ -1418,7 +1428,7 @@ function openSet() {
   if (!S) return;
   const sz = $('#setSize');
   if (!sz.options.length) for (let k = 3; k <= 10; k++) sz.add(new Option(k + '人', k));
-  sz.value = S.size; $('#setLevel').value = S.level;
+  sz.value = S.size; $('#setLevel').value = S.level; $('#setDecks').value = S.decks;
   setRules = Object.assign({}, S.rules);
   buildPicker($('#setRules'), setRules, true, lobbyChanged);
   $('#setModal').classList.add('on');
@@ -1606,7 +1616,7 @@ function renderLobby() {
   const host = S.you === S.host;
   $('#lbHostPanel').style.display = host ? '' : 'none';
   $('#lbWait').style.display = host ? 'none' : '';
-  $('#lbLevel').value = S.level;
+  $('#lbLevel').value = S.level; $('#lbDecks').value = S.decks; $('#lbDecks').parentElement.style.display = tour ? 'none' : '';
   const sz = $('#lbSize');
   if (!sz.options.length) for (let k = 3; k <= 10; k++) sz.add(new Option(k + '人', k));
   sz.value = S.size;
@@ -1627,13 +1637,24 @@ function fitHand(hand) {
   const cards = hand.children;
   const n = cards.length;
   if (n < 2) return;
-  const cw = cards[0].getBoundingClientRect().width;
+  const r0 = cards[0].getBoundingClientRect();
+  const cw = r0.width, ch = r0.height;
   if (!cw) return;
   const avail = hand.clientWidth - 8;
   let gap = 6;
   if (n * cw + (n - 1) * gap > avail) gap = (avail - cw) / (n - 1) - cw;
-  gap = Math.max(gap, -cw * 0.78);
-  for (let i = 1; i < n; i++) cards[i].style.marginLeft = gap + 'px';
+  const minGap = -cw * 0.72; // 1枚につき約28%が見える
+  hand.style.flexWrap = 'nowrap';
+  for (let i = 0; i < n; i++) { cards[i].style.marginTop = ''; cards[i].style.marginLeft = ''; }
+  if (gap >= minGap) { for (let i = 1; i < n; i++) cards[i].style.marginLeft = gap + 'px'; return; }
+  // 枚数が多い（複数セット）ときは、重ねたまま何段かに折り返す
+  const step = cw * 0.28;
+  const perRow = Math.max(2, Math.floor((avail - cw) / step) + 1);
+  hand.style.flexWrap = 'wrap';
+  for (let i = 0; i < n; i++) {
+    if (i % perRow !== 0) cards[i].style.marginLeft = minGap + 'px';
+    if (i >= perRow) cards[i].style.marginTop = -ch * 0.55 + 'px';
+  }
 }
 
 function renderGame() {
@@ -1741,7 +1762,7 @@ function renderGame() {
       }).join('');
       const nOn = Object.values(S.rules || {}).filter(Boolean).length;
       top = '<h2 style="margin-top:0">ラウンド ' + S.round + ' 結果</h2><h3 style="margin-top:4px">直前の結果</h3>' + last + '<h3>総合ランキング（' + S.round + 'ラウンド累計）</h3>' + total +
-        '<div class="waitnote">この部屋：' + S.size + '人 ／ AIの強さ：' + ({ easy: 'よわい', normal: 'ふつう', hard: 'つよい' }[S.level] || '') + ' ／ ローカルルール ' + nOn + '個</div>';
+        '<div class="waitnote">この部屋：' + S.size + '人 ／ カード' + S.decks + 'セット ／ AIの強さ：' + ({ easy: 'よわい', normal: 'ふつう', hard: 'つよい' }[S.level] || '') + ' ／ ローカルルール ' + nOn + '個</div>';
       const iReady = (g.ready || []).includes(you);
       const names = (g.waiting || []).map((i) => esc(S.seats[i].name)).join('、');
       btns = '<div class="waitnote">' + (g.waiting && g.waiting.length ? (iReady ? '✅ 準備OK！ ほかの人を待っています：' : '全員が「次へ」を押すと始まります。待ち：') + names : '全員そろいました') + '</div>' +
@@ -1827,11 +1848,12 @@ function newCode() {
 const cleanName = (n) => String(n || '').replace(/[<>\n\r]/g, '').trim().slice(0, 12) || 'ゲスト';
 const emptySeat = () => ({ type: 'empty', name: '', token: null, conn: 0, lastSeen: 0 });
 
-function createRoom(name, pub, level, size, password, rules, customCode, kind) {
+const clampDecks = (d) => Math.max(1, Math.min(5, Math.floor(+d) || 1));
+function createRoom(name, pub, level, size, password, rules, customCode, kind, decks) {
   size = kind === 'tour' ? TOUR_SIZE : clampSize(size);
   const code = customCode || newCode();
   const room = {
-    code, pub: !!pub, password: cleanPw(password), rules: G.normRules(rules), maintained: false, phase: 'lobby', host: 0, level: LEVELS.includes(level) ? level : 'normal',
+    code, pub: !!pub, password: cleanPw(password), rules: G.normRules(rules), maintained: false, phase: 'lobby', host: 0, level: LEVELS.includes(level) ? level : 'normal', decks: clampDecks(decks),
     seats: Array.from({ length: size }, emptySeat), scores: Array(size).fill(0), wins: Array(size).fill(0), round: 0, ready: new Set(),
     chat: [], chatSeq: 0, g: null, clients: new Set(), timer: null, deadline: null, lastResults: null, scored: false,
     updated: Date.now(), kind: kind || 'normal', stages: [], stage: 0, champion: -1, children: [], stageTimer: null,
@@ -1868,7 +1890,7 @@ function fillAI(room) {
 function view(room, seat) {
   const g = room.g;
   const v = {
-    room: room.code, phase: room.phase, you: seat, host: room.host, level: room.level, round: room.round, pub: room.pub, locked: !!room.password, size: room.seats.length, rules: room.rules, kind: room.kind,
+    room: room.code, phase: room.phase, you: seat, host: room.host, level: room.level, decks: room.decks, round: room.round, pub: room.pub, locked: !!room.password, size: room.seats.length, rules: room.rules, kind: room.kind,
     password: seat === room.host ? room.password : undefined,
     seats: room.seats.map((s, i) => ({ type: s.type, name: s.name, online: s.type === 'ai' || s.conn > 0, score: room.scores[i], wins: room.wins[i] || 0 })),
     titles: titlesFor(room.seats.length),
@@ -1948,7 +1970,7 @@ function childTourView(room, seat) {
 function makeTable(P, stage, idx, pseats, label) {
   const code = P.code + '-' + stage + (idx + 1);
   const child = {
-    code, pub: false, password: '', rules: P.rules, maintained: false, phase: 'lobby', host: 0, level: P.level, kind: 'table',
+    code, pub: false, password: '', rules: P.rules, maintained: false, phase: 'lobby', host: 0, level: P.level, decks: P.decks, kind: 'table',
     seats: pseats.map((ps) => {
       const s = P.seats[ps];
       return s.type === 'human' ? { type: 'human', name: s.name, token: s.token, conn: 0, lastSeen: Date.now() } : { type: 'ai', name: s.name, token: null, conn: 0, lastSeen: 0 };
@@ -2042,7 +2064,7 @@ function broadcast(room) {
 
 // ---- 進行 ---------------------------------------------------------------
 function startRound(room, prev) {
-  room.g = G.newRound(prev, room.seats.length, room.rules, { maintained: room.maintained });
+  room.g = G.newRound(prev, room.seats.length, room.rules, { maintained: room.maintained, decks: room.decks });
   room.round++;
   room.scored = false;
   room.ready = new Set();
@@ -2318,7 +2340,7 @@ async function handleApi(req, res, url) {
       if (custom.length < 2) return json(res, 400, { error: '部屋名は2文字以上にしてください' });
       if (rooms.has(custom)) return json(res, 400, { error: 'その部屋名はすでに使われています' });
     }
-    const { room, token } = createRoom(body.name, online && body.pub, body.level, body.size, online ? body.password : '', body.rules, custom, isTour ? 'tour' : 'normal');
+    const { room, token } = createRoom(body.name, online && body.pub, body.level, body.size, online ? body.password : '', body.rules, custom, isTour ? 'tour' : 'normal', body.decks);
     if (body.mode === 'ai') startGame(room);
     return json(res, 200, { room: room.code, token, seat: 0 });
   }
@@ -2350,6 +2372,13 @@ async function handleApi(req, res, url) {
     room.seats[seat].lastSeen = Date.now();
     const g = room.g;
     switch (body.type) {
+      case 'decks':
+        if (room.tour || room.kind === 'tour') return json(res, 403, { error: '大会では変更できません' });
+        if (seat !== room.host || !(room.phase === 'lobby' || inBetween(room))) return json(res, 403, { error: 'ホストのみ・ロビーか結果画面でのみ変更できます' });
+        room.decks = clampDecks(body.decks);
+        if (room.phase === 'game') { room.ready = new Set(); addChat(room, -1, 'ホストがカードを ' + room.decks + 'セット に変更しました。もう一度「次へ」を押してください', true); }
+        broadcast(room);
+        return json(res, 200, { ok: true });
       case 'level':
         if (room.tour) return json(res, 403, { error: '大会の卓では変更できません' });
         if (seat !== room.host || !(room.phase === 'lobby' || inBetween(room))) return json(res, 403, { error: 'ホストのみ・ロビーか結果画面でのみ変更できます' });
