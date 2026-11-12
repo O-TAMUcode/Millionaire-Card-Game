@@ -1136,7 +1136,7 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
     <h2>AIと対戦（1人で遊ぶ）</h2>
     <div class="row">
       <select id="aiLevel"><option value="easy">よわい</option><option value="normal" selected>ふつう</option><option value="hard">つよい</option></select>
-      <label>人数（自分を含む） <select id="aiSize"></select></label>
+      <label>人数（自分を含む） <select id="aiSize" onchange="fitDecks('aiDecks',+this.value)"></select></label>
       <label>カード <select id="aiDecks"><option value="1" selected>1セット</option><option value="2">2セット</option><option value="3">3セット</option><option value="4">4セット</option><option value="5">5セット</option><option value="6">6セット</option><option value="7">7セット</option><option value="8">8セット</option><option value="9">9セット</option><option value="10">10セット</option><option value="11">11セット</option><option value="12">12セット</option><option value="13">13セット</option><option value="14">14セット</option><option value="15">15セット</option><option value="16">16セット</option></select></label>
       <button onclick="startAI()">対戦スタート</button>
     </div>
@@ -1156,7 +1156,7 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
   <div class="panel">
     <h2>🏆 大会モード（12〜64人）</h2>
     <div style="font-size:13px;line-height:1.6;opacity:.9;margin-bottom:10px">卓ごとに対戦し、<b>各卓の大富豪</b>が次の回戦に進みます。これを繰り返して、<b>決勝の大富豪が優勝</b>です。空席はAIが入ります。<b>ルール・人数・カードの数は、運営（ホスト）が大会ロビーで開始前に選べます</b>。開始後は、途中参加・人数・ルールの変更はできません。</div>
-    <div class="row" style="margin-bottom:10px"><label>人数 <select id="tourSize" onchange="tourPlan()"></select></label><label>1卓の人数 <select id="tourTable" onchange="tourPlan()"></select></label></div>
+    <div class="row" style="margin-bottom:10px"><label>人数 <select id="tourSize" onchange="tourPlan()"></select></label><label>1卓の人数 <select id="tourTable" onchange="tourPlan();fitDecks('tourDecks',+this.value)"></select></label></div>
     <div id="tourRounds" style="font-size:13px;color:var(--gold);margin-bottom:10px"></div>
     <div class="row" style="margin-bottom:8px"><input id="tourName" maxlength="20" placeholder="大会名（例：第1回 秋の大富豪大会）" style="flex:1"></div>
     <div class="row" style="margin-bottom:8px"><label>開催日時 <input type="datetime-local" id="tourWhen"></label><label><input type="checkbox" id="tourAuto"> 時刻に自動開始</label></div>
@@ -1167,7 +1167,7 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
   </div>
   <div class="panel">
     <h2>オンライン対戦</h2>
-    <div class="row" style="margin-bottom:10px"><label>人数（最大10人） <select id="olSize"></select></label><label>カード <select id="olDecks"><option value="1" selected>1セット</option><option value="2">2セット</option><option value="3">3セット</option><option value="4">4セット</option><option value="5">5セット</option><option value="6">6セット</option><option value="7">7セット</option><option value="8">8セット</option><option value="9">9セット</option><option value="10">10セット</option><option value="11">11セット</option><option value="12">12セット</option><option value="13">13セット</option><option value="14">14セット</option><option value="15">15セット</option><option value="16">16セット</option></select></label><label>AIの強さ <select id="olLevel"><option value="easy">よわい</option><option value="normal" selected>ふつう</option><option value="hard">つよい</option></select></label><input id="olPw" maxlength="20" placeholder="パスワード（任意・日本語もOK）"></div>
+    <div class="row" style="margin-bottom:10px"><label>人数（最大10人） <select id="olSize" onchange="fitDecks('olDecks',+this.value)"></select></label><label>カード <select id="olDecks"><option value="1" selected>1セット</option><option value="2">2セット</option><option value="3">3セット</option><option value="4">4セット</option><option value="5">5セット</option><option value="6">6セット</option><option value="7">7セット</option><option value="8">8セット</option><option value="9">9セット</option><option value="10">10セット</option><option value="11">11セット</option><option value="12">12セット</option><option value="13">13セット</option><option value="14">14セット</option><option value="15">15セット</option><option value="16">16セット</option></select></label><label>AIの強さ <select id="olLevel"><option value="easy">よわい</option><option value="normal" selected>ふつう</option><option value="hard">つよい</option></select></label><input id="olPw" maxlength="20" placeholder="パスワード（任意・日本語もOK）"></div>
     <div class="row" style="margin-bottom:10px"><input id="olCode" maxlength="12" placeholder="部屋名（任意・日本語もOK／空欄なら自動）" style="flex:1"></div>
     <div class="row" style="margin-bottom:10px">
       <button onclick="quick()">クイックマッチ</button>
@@ -1390,6 +1390,12 @@ function infoHtml(info, tour) {
 }
 async function saveTinfo() { const j = await api('/api/action', { room: sess.room, token: sess.token, type: 'tinfo', name: $('#lbTName').value, desc: $('#lbTDesc').value, startAt: fromLocalInput($('#lbTWhen').value), auto: $('#lbTAuto').checked }); if (j) toast('保存しました'); }
 async function kick(i) { if (!confirm(S.seats[i].name + ' さんを退出させますか？（再入場できなくなります）')) return; const j = await api('/api/action', { room: sess.room, token: sess.token, type: 'kick', target: i }); if (j) toast('退出させました'); }
+function fitDecks(id, n) {
+  const el = document.getElementById(id); if (!el) return;
+  n = Math.max(1, Math.min(16, n | 0)); const v = Math.min(+el.value || 1, n);
+  if (el.options.length !== n) { el.innerHTML = ''; for (let k = 1; k <= n; k++) el.add(new Option(k + 'セット', k)); }
+  el.value = v;
+}
 async function api(path, body) {
   if (path === '/api/create' || path === '/api/join' || path === '/api/quick') body = Object.assign({}, body, profPayload());
   try {
@@ -1534,7 +1540,7 @@ function openSet() {
   if (!S) return;
   const sz = $('#setSize');
   if (!sz.options.length) for (let k = 3; k <= 10; k++) sz.add(new Option(k + '人', k));
-  sz.value = S.size; $('#setLevel').value = S.level; $('#setDecks').value = S.decks;
+  sz.value = S.size; $('#setLevel').value = S.level; fitDecks('setDecks', S.size); $('#setDecks').value = S.decks;
   setRules = Object.assign({}, S.rules);
   buildPicker($('#setRules'), setRules, true, lobbyChanged);
   $('#setModal').classList.add('on');
@@ -1756,7 +1762,7 @@ function renderLobby() {
   const host = S.you === S.host;
   $('#lbHostPanel').style.display = host ? '' : 'none';
   $('#lbWait').style.display = host ? 'none' : '';
-  $('#lbLevel').value = S.level; $('#lbDecks').value = S.decks; 
+  $('#lbLevel').value = S.level; fitDecks('lbDecks', tour ? S.tableSize : S.size); $('#lbDecks').value = S.decks; 
   const sz = $('#lbSize');
   const szKind = tour ? 'tour' : 'normal';
   if (sz.dataset.kind !== szKind) { sz.innerHTML = ''; for (let k = tour ? 12 : 3; k <= (tour ? 64 : 10); k++) sz.add(new Option(k + '人', k)); sz.dataset.kind = szKind; }
@@ -1950,7 +1956,7 @@ setInterval(() => {
 // 起動
 (function init() {
   try { $('#name').value = localStorage.getItem('dfgName') || ''; } catch (e) {}
-  { const el = document.getElementById('tourSize'); for (let k = 12; k <= 64; k++) el.add(new Option(k + '人', k)); el.value = 16; const tt = document.getElementById('tourTable'); for (let k = 3; k <= 10; k++) tt.add(new Option(k + '人', k)); tt.value = 4; tourPlan(); renderProf(); }
+  { const el = document.getElementById('tourSize'); for (let k = 12; k <= 64; k++) el.add(new Option(k + '人', k)); el.value = 16; const tt = document.getElementById('tourTable'); for (let k = 3; k <= 10; k++) tt.add(new Option(k + '人', k)); tt.value = 4; tourPlan(); fitDecks('aiDecks', 4); fitDecks('olDecks', 4); fitDecks('tourDecks', 4); renderProf(); }
   for (const id of ['aiSize', 'olSize']) { const el = document.getElementById(id); for (let k = 3; k <= 10; k++) el.add(new Option(k + '人', k)); el.value = 4; }
   $('#passMode').value = passMode;
   initChat();
@@ -2013,6 +2019,7 @@ function newCode() {
 const cleanName = (n) => String(n || '').replace(/[<>\n\r]/g, '').trim().slice(0, 12) || 'ゲスト';
 const emptySeat = () => ({ type: 'empty', name: '', token: null, conn: 0, lastSeen: 0 });
 
+const deckCap = (room) => Math.max(1, Math.min(room.decks, room.kind === 'tour' ? room.tableSize || 4 : room.seats.length));
 const clampDecks = (d) => Math.max(1, Math.min(16, Math.floor(+d) || 1));
 function createRoom(name, pub, level, size, password, rules, customCode, kind, decks, extra) {
   size = kind === 'tour' ? clampTour(size) : clampSize(size);
@@ -2062,7 +2069,7 @@ function fillAI(room) {
 function view(room, seat, pseat) {
   const g = room.g;
   const v = {
-    room: room.code, phase: room.phase, you: seat, host: room.host, level: room.level, decks: room.decks, round: room.round, pub: room.pub, locked: !!room.password, size: room.seats.length, rules: room.rules, kind: room.kind,
+    room: room.code, phase: room.phase, you: seat, host: room.host, level: room.level, decks: deckCap(room), round: room.round, pub: room.pub, locked: !!room.password, size: room.seats.length, rules: room.rules, kind: room.kind,
     password: seat === room.host ? room.password : undefined,
     seats: room.seats.map((s, i) => ({ type: s.type, name: s.name, title: s.title || '', icon: s.icon || '', online: s.type === 'ai' || s.conn > 0, score: room.scores[i], wins: room.wins[i] || 0 })),
     titles: titlesFor(room.seats.length),
@@ -2156,7 +2163,7 @@ function childTourView(room, seat, pseatOver) {
 function makeTable(P, stage, idx, pseats, label, final) {
   const code = P.code + '-' + stage + (idx + 1);
   const child = {
-    code, pub: false, password: '', rules: P.rules, maintained: false, phase: 'lobby', host: 0, level: P.level, decks: P.decks, kind: 'table',
+    code, pub: false, password: '', rules: P.rules, maintained: false, phase: 'lobby', host: 0, level: P.level, decks: Math.max(1, Math.min(P.decks, pseats.length)), kind: 'table',
     seats: pseats.map((ps) => {
       const s = P.seats[ps];
       return s.type === 'human' ? { type: 'human', name: s.name, title: s.title || '', icon: s.icon || '', pid: s.pid || '', token: s.token, conn: 0, lastSeen: Date.now() } : { type: 'ai', name: s.name, token: null, conn: 0, lastSeen: 0 };
@@ -2255,7 +2262,7 @@ function broadcast(room) {
 
 // ---- 進行 ---------------------------------------------------------------
 function startRound(room, prev) {
-  room.g = G.newRound(prev, room.seats.length, room.rules, { maintained: room.maintained, decks: room.decks });
+  room.g = G.newRound(prev, room.seats.length, room.rules, { maintained: room.maintained, decks: deckCap(room) });
   room.round++;
   room.scored = false;
   room.ready = new Set();
@@ -2645,7 +2652,7 @@ async function handleApi(req, res, url) {
       case 'decks':
         if (room.tour || (room.kind === 'tour' && room.phase !== 'lobby')) return json(res, 403, { error: '大会が始まったあとは変更できません' });
         if (seat !== room.host || !(room.phase === 'lobby' || inBetween(room))) return json(res, 403, { error: 'ホストのみ・ロビーか結果画面でのみ変更できます' });
-        room.decks = clampDecks(body.decks);
+        room.decks = Math.min(clampDecks(body.decks), room.kind === 'tour' ? room.tableSize : room.seats.length);
         if (room.phase === 'game') { room.ready = new Set(); addChat(room, -1, 'ホストがカードを ' + room.decks + 'セット に変更しました。もう一度「次へ」を押してください', true); }
         broadcast(room);
         return json(res, 200, { ok: true });
