@@ -1983,7 +1983,7 @@ const PORT = process.env.PORT || 3000;
 
 const MIN_PLAYERS = 3;
 const MAX_PLAYERS = 10;
-const AI_NAMES = ['タロウ', 'ハナコ', 'ケンタ', 'ミユ', 'ソウタ', 'アカリ', 'ダイスケ', 'サクラ', 'リク', 'ナナミ', 'ユウト', 'アオイ', 'ヒロ', 'メイ', 'ハルト', 'コトネ'];
+const AI_NAMES = ['タロウ', 'ハナコ', 'ケンタ', 'ミユ', 'ソウタ', 'アカリ', 'ダイスケ', 'サクラ', 'リク', 'ナナミ', 'ユウト', 'アオイ', 'ヒロ', 'メイ', 'ハルト', 'コトネ', 'レン', 'ユイ', 'カイト', 'ミオ', 'ショウ', 'ヒナ', 'タクミ', 'ノア', 'ユウキ', 'リコ', 'シンジ', 'ミサキ', 'ゴウ', 'アヤ', 'トモヤ', 'マリ', 'ケイ', 'ユズ', 'リョウ', 'ナツキ', 'ダイキ', 'ミツキ', 'ヨシオ', 'チヒロ', 'ハヤト', 'サヤ', 'コウタ', 'モモ', 'ナオキ', 'アスカ', 'イッセイ', 'ルナ', 'マサト', 'カナ', 'テツヤ', 'エマ', 'ジュン', 'ココロ', 'ヤマト', 'ミク', 'タケル', 'ヒカリ', 'ゲンタ', 'ユキ', 'シュン', 'リン', 'カズキ', 'ナギサ', 'アキラ', 'マナ', 'ハジメ', 'レイ', 'ケンジ', 'スズ', 'イオリ', 'フウカ', 'トオル', 'ミナト', 'アン', 'ゴロウ', 'シホ', 'ヒデキ', 'ノゾミ', 'リュウ', 'マヒロ', 'セイヤ', 'ユリ', 'コハル', 'ダイゴ', 'ミカ', 'ツバサ', 'サナ', 'ロクロウ', 'ヒヨリ', 'ジロウ', 'ナナ', 'イサム', 'アミ', 'ハンゾウ', 'キヨ', 'モトキ', 'ツムギ', 'ヨウ', 'ミレイ', 'カンタ', 'ホノカ', 'シゲル', 'ユア', 'オサム', 'ミドリ', 'ナガレ', 'チトセ'];
 const TOUR_MIN = 12, TOUR_MAX = 64;
 const clampTour = (n) => Math.max(TOUR_MIN, Math.min(TOUR_MAX, parseInt(n, 10) || 16));
 function titlesFor(n) {
@@ -2055,11 +2055,15 @@ function isBot(room, i) {
 
 function fillAI(room) {
   const used = new Set(room.seats.map((s) => s.name));
-  let more = AI_NAMES.length;
+  const pool = AI_NAMES.slice();
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  let more = 0;
   room.seats.forEach((s, i) => {
     if (s.type === 'empty') {
-      const name = AI_NAMES.find((n) => !used.has('AI ' + n)) || String(++more);
+      let name = pool.find((n) => !used.has('AI ' + n));
+      if (!name) { const base = AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)]; do { name = base + (++more + 1); } while (used.has('AI ' + name)); }
       used.add('AI ' + name);
+      { const pi = pool.indexOf(name); if (pi >= 0) pool.splice(pi, 1); }
       room.seats[i] = { type: 'ai', name: 'AI ' + name, token: null, conn: 0, lastSeen: 0 };
     }
   });
