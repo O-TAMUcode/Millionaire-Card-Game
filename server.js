@@ -1123,6 +1123,7 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
 <section class="screen" id="home">
   <h1>🃏 大富豪オンライン</h1>
   <div class="sub-title">AIと対戦 / 友達とオンライン対戦（3〜10人）</div>
+  <div class="panel" id="resumeBox" style="display:none;border:2px solid var(--gold)"></div>
   <div class="panel">
     <h2>プレイヤー名</h2>
     <input id="name" maxlength="12" placeholder="なまえ" style="width:100%">
@@ -1228,7 +1229,7 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
   </div>
   <div id="lbWait" class="hint" style="display:none">ホストの開始を待っています…</div>
   <div id="lbInfo" class="hint"></div>
-  <div class="row" style="justify-content:center"><button class="sub" onclick="showRules()">ルール説明</button><button class="sub" onclick="leave()">退出</button></div>
+  <div class="row" style="justify-content:center"><button class="sub" onclick="goHome()">🏠 ホーム</button><button class="sub" onclick="showRules()">ルール説明</button><button class="sub" onclick="leave()">退出</button></div>
 </section>
 
 <!-- 大会（対戦表） -->
@@ -1245,12 +1246,13 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
       <div class="row"><input id="tcIn" maxlength="200" placeholder="メッセージを入力（Enterで送信）" autocomplete="off" style="flex:1"><button onclick="sendChat('tcIn')">送信</button></div>
     </div>
   </div>
-  <div class="row" style="justify-content:center"><button class="sub" onclick="showRules()">ルール説明</button><button id="tourAgain" style="display:none" onclick="act('lobby')">もう一度大会（ロビーへ）</button><button class="sub" onclick="leave(true)">退出</button></div>
+  <div class="row" style="justify-content:center"><button class="sub" onclick="goHome()">🏠 ホーム</button><button class="sub" onclick="showRules()">ルール説明</button><button id="tourAgain" style="display:none" onclick="act('lobby')">もう一度大会（ロビーへ）</button><button class="sub" onclick="leave(true)">退出</button></div>
 </section>
 
 <!-- 観戦 -->
 <section class="screen" id="spec">
   <h1 id="specTitle">👀 観戦中</h1>
+  <div class="row" style="justify-content:center;margin-bottom:6px"><button class="sub" onclick="goHome()">🏠 ホーム</button></div>
   <div id="specChips" style="text-align:center;margin-bottom:8px"></div>
   <div class="panel"><div id="specSeats"></div></div>
   <div class="panel"><div id="specWho" style="opacity:.8;font-size:14px;margin-bottom:6px"></div><div class="field" id="specField" style="min-height:110px"></div></div>
@@ -1267,6 +1269,7 @@ ul.rules{padding-left:18px;line-height:1.7;font-size:14px;margin:6px 0}
       <button class="sub" id="chatBtn" style="padding:4px 10px;display:none" onclick="toggleChat()">💬<span class="badge" id="chatBadge" style="display:none"></span></button>
       <button class="sub" id="passBtnMode" style="padding:4px 10px" onclick="togglePassMode()"></button>
       <button class="sub" style="padding:4px 10px" onclick="showRules()">ルール</button>
+      <button class="sub" style="padding:4px 10px" onclick="goHome()">🏠 ホーム</button>
       <button class="sub" style="padding:4px 10px" onclick="leave(true)">退出</button></div>
   </div>
   <div class="opps" id="opps"></div>
@@ -1324,7 +1327,8 @@ try { sess = JSON.parse(sessionStorage.getItem('dfg') || 'null'); } catch (e) {}
 try { passMode = localStorage.getItem('dfgPass') === 'auto' ? 'auto' : 'manual'; } catch (e) {}
 
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = 'none', 2600); }
-function screen(id) { document.querySelectorAll('.screen').forEach((e) => e.classList.toggle('on', e.id === id)); }
+let viewHome = false;
+function screen(id) { if (viewHome && sess) id = 'home'; document.querySelectorAll('.screen').forEach((e) => e.classList.toggle('on', e.id === id)); }
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 // ---- プロフィール(この端末のみ) ----
 const ICONS = ['🙂','😎','🤠','🦊','🐱','🐶','🐼','🐸','🦁','🐯','🐰','🐧','🦉','🐲','👑','🃏','♠️','♥️','♦️','♣️','🍁','🌸','⭐','🔥'];
@@ -1501,7 +1505,7 @@ function initRules(j) {
 }
 
 // ---- 作成/参加 ----
-function enter(j) { sess = { room: j.room, token: j.token }; try { sessionStorage.setItem('dfg', JSON.stringify(sess)); } catch (e) {} history.replaceState(null, '', '?room=' + encodeURIComponent(j.room)); lastEv = null; resetChat(); connect(); }
+function enter(j) { if (sess && viewHome && sess.room !== j.room) { try { fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ room: sess.room, token: sess.token, type: 'leave' }) }); } catch (e) {} } viewHome = false; $('#resumeBox').style.display = 'none'; sess = { room: j.room, token: j.token }; try { sessionStorage.setItem('dfg', JSON.stringify(sess)); } catch (e) {} history.replaceState(null, '', '?room=' + encodeURIComponent(j.room)); lastEv = null; resetChat(); connect(); }
 const rulePayload = () => ({ rules: homeRules });
 async function startAI() { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'ai', decks: +$('#aiDecks').value, level: $('#aiLevel').value, size: +$('#aiSize').value }, rulePayload())); if (j) enter(j); }
 async function createOnline(pub) { saveHome(); const j = await api('/api/create', Object.assign({ name: myName(), mode: 'online', pub, decks: +$('#olDecks').value, level: $('#olLevel').value, size: +$('#olSize').value, password: $('#olPw').value, code: $('#olCode').value }, rulePayload())); if (j) enter(j); }
@@ -1553,8 +1557,22 @@ async function leave(confirmFirst) {
   await act('leave');
   reset();
 }
+function goHome() { if (!sess) return; viewHome = true; $('#resModal').classList.remove('on'); $('#setModal').classList.remove('on'); closeChatDrawer(); showResume(); screen('home'); window.scrollTo(0, 0); }
+function backToRoom() { viewHome = false; $('#resumeBox').style.display = 'none'; if (S) render(); }
+function closeChatDrawer() { const d = $('#chatDrawer'); if (d) d.classList.remove('on'); chatOpen = false; }
+function showResume() {
+  const b = $('#resumeBox'); if (!b) return;
+  if (!(viewHome && sess)) { b.style.display = 'none'; return; }
+  let what = '部屋 ' + sess.room, st = '';
+  if (S) {
+    if (S.kind === 'tour' || S.phase === 'tour' || (S.tour && S.tour.parent)) what = '🏆 大会' + ((S.tour && S.tour.name) || (S.info && S.info.name) ? '：' + esc((S.tour && S.tour.name) || S.info.name) : '');
+    st = S.phase === 'lobby' ? '待機中' : S.phase === 'tour' ? (S.tour.champion >= 0 ? '終了' : '進行中') : (S.game && S.game.phase === 'end' ? '結果画面' : 'ゲーム中');
+    if (S.you >= 0 && S.game && S.game.phase === 'play' && S.game.turn === S.you) st += '（あなたの番です！）';
+  }
+  b.style.display = ''; b.innerHTML = '<div style="font-weight:800;margin-bottom:6px">▶ 参加中：' + what + '　<span style="opacity:.8;font-weight:400">' + st + '</span></div><div class="row"><button onclick="backToRoom()">部屋に戻る</button><button class="sub" onclick="leave(true)">退出する</button></div>';
+}
 function reset() {
-  if (es) es.close(); es = null; S = null; sess = null; sel.clear();
+  viewHome = false; if (es) es.close(); es = null; S = null; sess = null; sel.clear();
   try { sessionStorage.removeItem('dfg'); } catch (e) {} history.replaceState(null, '', location.pathname);
   $('#resModal').classList.remove('on'); resCache.top = resCache.btns = ''; tourCache = ''; resetChat(); screen('home'); loadPub();
 }
@@ -1714,6 +1732,7 @@ function renderSpec() {
 }
 function render() {
   if (!S) return;
+  if (viewHome) { if (S.tour && S.tour.go && sess && S.tour.go !== sess.room) switchRoom(S.tour.go); showResume(); return; }
   if (S.you < 0 && S.tour && S.game) {
     if (S.tour.go && sess && S.tour.go !== sess.room) { switchRoom(S.tour.go, false); return; }
     $('#resModal').classList.remove('on'); renderSpec(); screen('spec'); return;
@@ -1920,7 +1939,7 @@ function renderGame() {
       const rows = g.results.map((r) => '<div class="res' + (r.seat === you ? ' me' : '') + '"><span>' + (r.place + 1) + '位 ' + r.title + '　' + nmH(S.seats[r.seat]) + '</span><span>' + (r.place === 0 ? '👑' : '') + '</span></div>').join('');
       const msg = T.final ? (T.champion ? (won ? '🏆 優勝おめでとう！' : '🏆 優勝は ' + esc(T.champion) + ' さん') : '') : (won ? '🎉 勝ち抜け！ 次の回戦に進みます（まもなく自動で移動します）' : '残念、敗退です。対戦表で大会の様子を見られます。');
       top = '<h2 style="margin-top:0">' + esc(T.label) + ' 結果</h2>' + rows + '<div class="waitnote">' + msg + '</div>';
-      btns = '<div class="row"><button onclick="switchRoom(S.tour.parent)">大会の対戦表を見る</button><button class="sub" onclick="leave()">退出</button></div>';
+      btns = '<div class="row"><button onclick="switchRoom(S.tour.parent)">大会の対戦表を見る</button><button class="sub" onclick="goHome()">🏠 ホーム</button><button class="sub" onclick="leave()">退出</button></div>';
     } else {
       const last = g.results.map((r) => '<div class="res' + (r.seat === you ? ' me' : '') + '"><span>' + (r.place + 1) + '位 ' + r.title + '　' + nmH(S.seats[r.seat]) + '</span><span>+' + r.add + '点</span></div>').join('');
       const tot = S.seats.map((x, i) => ({ i, x })).sort((a, b) => b.x.score - a.x.score || b.x.wins - a.x.wins || a.i - b.i);
@@ -1936,7 +1955,7 @@ function renderGame() {
       const names = (g.waiting || []).map((i) => esc(S.seats[i].name)).join('、');
       btns = '<div class="waitnote">' + (g.waiting && g.waiting.length ? (iReady ? '✅ 準備OK！ ほかの人を待っています：' : '全員が「次へ」を押すと始まります。待ち：') + names : '全員そろいました') + '</div>' +
         '<div class="row"><button id="nextBtn"' + (iReady ? ' disabled' : '') + ' onclick="act(\\'next\\')">' + (iReady ? '準備OK（待機中）' : '次のラウンドを始める') + '</button>' +
-        '<button class="sub" onclick="showRules()">ルール確認</button>' +
+        '<button class="sub" onclick="showRules()">ルール確認</button><button class="sub" onclick="goHome()">🏠 ホーム</button>' +
         (S.you === S.host ? '<button class="sub" onclick="openSet()">人数・ルール変更</button><button class="sub" onclick="act(\\'lobby\\')">ロビーに戻る</button>' : '') +
         '<button class="sub" onclick="leave()">退出</button></div>';
     }
